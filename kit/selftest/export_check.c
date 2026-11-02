@@ -12,6 +12,18 @@ int mfxup_output_enabled(void) { return 0; }
 void dm_gfx_set_flag(const char *name, int on) { (void)name; (void)on; }
 void runtime_survey_init(Module *m) { (void)m; }
 void *runtime_symbol(const char *name) { (void)name; return NULL; }   /* Vert+ only (TOTK_ASPECT_VERT), off here */
+
+/* The parts of the runtime this file names but does not define. They live in the runtime's other objects (the graphics
+   layer, the world survey, the thread debugger), which the real export links whole; the harness stands alone, so it
+   brings the few the patches reach itself. The Mac-only blocks that use them are not entered in an iOS export
+   (TOTK_EXPORT_IOS), so the values are never read. */
+uint8_t *runtime_bench_cam;                                  /* runtime/world_survey.c: the benchmark camera's data page */
+uint64_t g_vr_cam_blocks[8];                                  /* third_party/d2r_gfx/gfx/nvn/hle_nvn.c: the replay's camera blocks */
+void (*g_vr_find_camera)(const float *view);                  /* third_party/d2r_gfx/gfx/nvn/nvn_mtl.m: the VR camera search */
+void runtime_describe_address(uint64_t a, char *out, size_t n) { snprintf(out, n, "%#llx", (unsigned long long)a); }
+void runtime_player_init(Module *m) { (void)m; }               /* runtime/world_survey.c: the player's position */
+uintptr_t runtime_player_pos_address(void) { return 0; }
+int vr_link_palettes(uint64_t *addr, int *bones, int max) { (void)addr; (void)bones; (void)max; return 0; }
 int main(int argc, char **argv) {
     if (argc != 4) return 2;
     FILE *f = fopen(argv[1], "rb"); if (!f) return 2;
