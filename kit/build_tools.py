@@ -80,6 +80,7 @@ def main():
     linux = sys.platform.startswith('linux')
     windows = sys.platform == 'win32'
     exe = '.exe' if windows else ''
+    so_suffix = '.dll' if windows else '.so'
 
     # hactool: build_app's own fetch and patches; the Linux / Windows file view is swapped in just before make
     real_run = B.run
@@ -122,6 +123,18 @@ def main():
         list(pool.map(lambda n: sh([cxx, *flags, '-c', src / n, '-o', objs / (n + '.o')]), B.SPIRV_CROSS_SOURCES))
     sh([cxx, *[objs / (n + '.o') for n in B.SPIRV_CROSS_SOURCES], *(['-static'] if windows else []), '-o', out / f'spirv-cross{exe}'])
 
+    # The translator links SPIRV-Cross in (publish_native.sh builds the library; Service.cs calls it), so it needs
+    # the library beside it. Without it the service cannot start at all. The library is built from the same pinned
+    # sources as the program, plus the small wrapper the service's entry point is in.
+    spvc = work / 'spvc'
+    spvc.mkdir(exist_ok=True)
+    for n in B.SPIRV_CROSS_SOURCES:
+        sh([cxx, *flags, '-fPIC', '-c', src / n, '-o', spvc / (n + '.o')])
+    sh([cxx, *flags, '-fPIC', '-I', src, '-c', mng / 'games/totk/tools/totk_xlate/spirv_cross_inproc.cpp',
+        '-o', spvc / 'spirv_cross_inproc.o'])
+    sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
+        spvc / 'spirv_cross_inproc.o', '-o', out / f'libtotk_spirv_cross{so_suffix}'])
+
     # the shader translator
     prebuilt = mng / 'games/totk/prebuilt/macos-arm64/totk_xlate'
     if sys.platform == 'darwin' and platform.machine() == 'arm64':
@@ -146,9 +159,33 @@ def main():
         (x / 'app').mkdir()
         for f in list(here.glob('*.cs')) + [here / 'totk_xlate.csproj']:
             shutil.copy2(f, x / 'app' / f.name)
+        # The project links the C++ runtime as -lc++ (macOS). Linux and Windows name it differently, so the flag
+        # is replaced with the one of this system (the C# code itself is the same on every system).
+        proj = x / 'app/totk_xlate.csproj'
+        text = proj.read_text()
+        if '<LinkerArg Include="-lc++" />' in text:
+            cxx_arg = '-lc++' if sys.platform == 'darwin' else '-lstdc++' if linux else ''
+            if cxx_arg:
+                text = text.replace('<LinkerArg Include="-lc++" />', f'<LinkerArg Include="{cxx_arg}" />')
+            else:
+                text = text.replace('    <LinkerArg Include="-lc++" />\n', '')
+            proj.write_text(text)
         sh([a.dotnet, 'publish', x / 'app/totk_xlate.csproj', '-c', 'Release', '-r', rid, '-p:PublishAot=true',
-            '-p:InvariantGlobalization=true', f'-p:RyuSrc={x / "ryujinx-src"}', '-o', x / 'out'])
+            '-p:InvariantGlobalization=true', f'-p:RyuSrc={x / "ryujinx-src"}',
+            f'-p:TotkSpirvCrossLib={out / ("libtotk_spirv_cross" + so_suffix)}',
+            '-o', x / 'out'])
         shutil.copy2(x / f'out/totk_xlate{exe}', out / f'totk_xlate{exe}')
+        # The translator must carry the fixes its sources describe: a translator that ignores the job's
+        # early_fragment_tests flag (the chain v8 fix, 2026-10-22) silently drops [[early_fragment_tests]] from
+        # the MSL, and the game then tests depth after the shader (the dotted lattice of the Great Sky Island).
+        # The flag's name is in the binary when it is read (.NET keeps its string literals as UTF-16), so its
+        # absence means the binary is older than the sources it was built from. The kit builds the translator
+        # from the sources it ships, so this must hold.
+        built = (out / f'totk_xlate{exe}').read_bytes()
+        if not any(b'early_fragment_tests' in enc for enc in
+                   (b'early_fragment_tests', 'early_fragment_tests'.encode('utf-16-le'))):
+            raise SystemExit('the built translator does not read early_fragment_tests: it is older than the '
+                             'sources it was built from; the shaders would lose [[early_fragment_tests]]')
     for name in ('hactool', 'spirv-cross', 'totk_xlate'):
         (out / (name + exe)).chmod(0o755)
     print('tools ready:', ', '.join(sorted(p.name for p in out.iterdir())))
