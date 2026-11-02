@@ -10,6 +10,7 @@ KIT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KIT))
 sys.path.insert(0, str(KIT / 'selftest'))
 import totk_import as T, check_export as C, macho, resources_check
+import pad_layout
 
 
 def synthetic_tree(mng, root):
@@ -119,6 +120,8 @@ def main():
         print(f'IPA assembled: {len(names)} entries, {out.stat().st_size / 2**20:.0f} MiB; executable sections filled')
         print(f'split IPA: {out2.stat().st_size / 2**20:.0f} MiB, the resources beside it: {parts} image part(s)')
         resources_check.check_parts()   # the parts and the pack are read back the way the phone reads them
+        # The on-screen pad's layout: no button on top of another, and none of them stealing another's touches.
+        pad_layout.check(KIT / 'shim/touch_pad_botw.m')
 
 
 if __name__ == '__main__':

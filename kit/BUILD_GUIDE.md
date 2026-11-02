@@ -147,7 +147,7 @@ shoulder buttons.
 - **The right stick follows a swipe.** A touch on no control in the right third of the screen holds the
   right stick where it lands, and the ring follows it, so the camera can be turned without looking at
   the pad.
-- **The ⊙ button at the top centre** (next to the frame-rate button) shows and hides the whole overlay.
+- **The ⊙ button at the top right of the + button** shows and hides the whole overlay.
   With a Bluetooth controller connected the pad hides itself; press ⊙ to bring it back for that session,
   or press it once with no controller to keep the picture clear between launches (the choice is
   remembered).

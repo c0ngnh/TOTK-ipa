@@ -81,7 +81,7 @@ The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad
   grabs that stick; a finger on a ring's edge is not a "nearest control" contest any more.
 - **The right stick follows a swipe.** A touch on no control in the right third of the screen holds the right stick
   where it lands, and the ring follows it, so the camera can be turned without looking at the pad.
-- **The ⊙ button at the top centre** (next to the frame-rate button) shows and hides the whole overlay. With a
+- **The ⊙ button at the top right of the + button** shows and hides the whole overlay. With a
   Bluetooth controller connected the pad hides itself; press ⊙ to bring it back for that session, or press it once
   with no controller to keep the picture clear between launches (the choice is remembered).
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A

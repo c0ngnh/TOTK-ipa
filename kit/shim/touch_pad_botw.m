@@ -22,8 +22,8 @@
    custom layer off it saves the choice in the pane's preset row (TOTK_PHONE_FPS) for the next start, with it on the
    pane owns the cap, so the button only holds 30 until the next launch.
 
-   The pad's own button (top centre, beside the frame-rate one) shows and hides the whole overlay, so a player who
-   brings a Bluetooth controller can get the picture clear; the choice is kept in NSUserDefaults (TOTK_PAD_HIDDEN).
+   The pad's own button (top row, out past the + pill) shows and hides the whole overlay, so a player who brings a
+   Bluetooth controller can get the picture clear; the choice is kept in NSUserDefaults (TOTK_PAD_HIDDEN).
 
    The physical controllers are the runtime's own (runtime/gamepad.m reads them); the touch layer is hidden while one is
    connected, and comes back when it is removed. */
@@ -41,7 +41,7 @@ static const CGFloat
     K_FACE_GAP = 50, K_FACE_R = 27,                 // the diamond: the key distance from the centre, the key radius
     K_PILL_DX = 52, K_PILL_Y = 22, K_PILL_W = 50, K_PILL_H = 28,   // − / +: from the screen's midline and the top, size
     K_FPS_R = 15,                                   // the frame-rate button: top centre, level with − / +
-    K_PAD_TOGGLE_DX = 46, K_PAD_TOGGLE_R = 13,      // the pad's own button: beside the frame-rate one, radius
+    K_PAD_TOGGLE_GAP = 30, K_PAD_TOGGLE_R = 13,       // the pad's own button: the gap past the + pill, radius
     K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,  // the left stick: mirrors the diamond, the ring as large as the whole diamond
     K_STICK_GRAB = 1.4,                             // how near the ring's centre a touch-down grabs a stick
     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius
@@ -253,8 +253,13 @@ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
     return CGRectMake(c.x - w / 2, c.y - h / 2, w, h);
 }
 - (CGPoint)fpsCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u); }
-/* The pad's own button: beside the frame-rate one, so a Bluetooth controller can have the picture to itself. */
-- (CGPoint)toggleCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s) + K_PAD_TOGGLE_DX * self.u, CGRectGetMinY(s) + K_PILL_Y * self.u); }
+/* The pad's own button: out past the + pill, so it neither covers the + button nor steals its touches. The gap is
+   measured from the pill's outer edge, so the two stay apart whatever the screen's size. */
+- (CGPoint)toggleCenter {
+    CGRect s = self.safe; CGFloat u = self.u;
+    CGFloat pillEdge = (K_PILL_DX + K_PILL_W / 2) * u;   // the + pill's outer edge, from the screen's midline
+    return CGPointMake(CGRectGetMidX(s) + pillEdge + K_PAD_TOGGLE_GAP * u, CGRectGetMinY(s) + K_PILL_Y * u);
+}
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 
@@ -262,17 +267,23 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
    and R come before ZL and ZR: the loops below name the keys instead of ranging over them.) */
 static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
 - (int)lockedAt:(CGPoint)p {
-    CGFloat u = self.u;
     for (size_t i = 0; i < sizeof(k_lockedKeys) / sizeof(k_lockedKeys[0]); i++) {
         int b = k_lockedKeys[i];
         BOOL hit = isDrop(b) ? dist(p, [self dropCenter:b]) <= [self dropR:b] * 1.35
-                 : CGRectContainsPoint(CGRectInset([self pillRect:b], -8 * u, -8 * u), p);
+                 : CGRectContainsPoint([self pillTouchRect:b], p);
         if (hit) return b;
     }
     return -1;
 }
-- (BOOL)inFps:(CGPoint)p { return dist(p, self.fpsCenter) <= K_FPS_R * self.u * 1.6; }
-- (BOOL)inToggle:(CGPoint)p { return dist(p, self.toggleCenter) <= K_PAD_TOGGLE_R * self.u * 1.6; }
+/* The − / + pills' touch area: their own rect, grown by the margin a finger needs. */
+- (CGRect)pillTouchRect:(int)b { return CGRectInset([self pillRect:b], -8 * self.u, -8 * self.u); }
+/* The two small buttons at the top (the frame rate and the pad's own) sit between the pills and the screen's middle, so
+   their grab circles reach into the pills' margins. The game buttons win there: a tap on the + pill is a + press, never
+   a frame-rate or a hide/show. */
+- (BOOL)overPill:(CGPoint)p { return CGRectContainsPoint([self pillTouchRect:B_PLUS], p) || CGRectContainsPoint([self pillTouchRect:B_MINUS], p); }
+- (BOOL)inFps:(CGPoint)p { return dist(p, self.fpsCenter) <= K_FPS_R * self.u * 1.6 && ![self overPill:p]; }
+/* The pad's own button's touch area: out past the + pill, so it neither covers the + button nor steals its touches. */
+- (BOOL)inToggle:(CGPoint)p { return dist(p, self.toggleCenter) <= K_PAD_TOGGLE_R * self.u * 1.6 && ![self overPill:p]; }
 - (uint64_t)faceAt:(CGPoint)p {
     uint64_t m = 0; CGFloat r = self.faceR * 1.25;
     for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
