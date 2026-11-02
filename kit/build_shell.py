@@ -86,7 +86,7 @@ def main():
                  ': @"No game data. Copy the resources folder to Files › On My iPhone › %@ › GameData, then open the game again."), app];')
     replace_once(tree / 'ios/Sources/main.m',
                  ': @"No shaders. Install the game again from the Mac with ios/tools/install_device.py (it copies them to the device).";',
-                 ': [NSString stringWithFormat:@"No shaders. Copy the resources folder to Files › On My iPhone › %@ › GameData, then open the game again.", app];')
+                 ': @"No shaders. Copy the resources folder to the phone (Files › On My iPhone › Tears of the Kingdom › GameData), then open the game again.";')
 
     # the project as build_ipa.py generates it for this version, plus the late-binding reader
     project = (ios / 'project.yml').read_text()

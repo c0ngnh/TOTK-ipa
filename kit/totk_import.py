@@ -351,10 +351,9 @@ def main(argv):
         # The resources beside the app: the phone reads them from its own Documents folder.
         resources = out.with_name(out.stem + '-resources')
         write_resources(tree, resources, logs)
-        say(f'done in {(time.time() - t0) / 60:.0f} min: {out} ({out.stat().st_size / 2**30:.1f} GiB)')
-        say(f'the game resources are in {resources}: copy them to the phone (Files › On My iPhone › TOTK › GameData)')
-    else:
-        say(f'done in {(time.time() - t0) / 60:.0f} min: {out} ({out.stat().st_size / 2**30:.1f} GiB)')
+        say(f'the game resources are in {resources}: copy that folder to the phone '
+            '(Files › On My iPhone › Tears of the Kingdom › GameData), then start the game')
+    say(f'done in {(time.time() - t0) / 60:.0f} min: {out} ({out.stat().st_size / 2**30:.1f} GiB)')
     say('Sign and install it with your sideloading tool, keeping its entitlements. It holds your game: do not share it.')
 
 
