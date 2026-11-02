@@ -73,6 +73,21 @@ Sign and install the IPA with your sideloading tool, keeping its entitlements: t
 | `tools/scan_firmware.py <firmware-nca-dir> --keys <prod.keys>` | Lists the NCAs of a firmware dump and says whether the shared-font NCAs are all there. |
 | `tools/extract_shared_fonts.py --firmware <firmware-nca-dir> --keys <prod.keys> --output <dir>` | Extracts the six shared fonts from a firmware dump, verifying the NCA headers, all six IVFC levels and each BFTTF header. Only needed for an `.nsp` base game. |
 
+## The on-screen controller
+
+The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad, both sticks and the shoulder buttons.
+
+- **Both sticks are drawn at rest**, so you see where they are before you touch them. A finger inside a stick's ring
+  grabs that stick; a finger on a ring's edge is not a "nearest control" contest any more.
+- **The right stick follows a swipe.** A touch on no control in the right third of the screen holds the right stick
+  where it lands, and the ring follows it, so the camera can be turned without looking at the pad.
+- **The ⊙ button at the top centre** (next to the frame-rate button) shows and hides the whole overlay. With a
+  Bluetooth controller connected the pad hides itself; press ⊙ to bring it back for that session, or press it once
+  with no controller to keep the picture clear between launches (the choice is remembered).
+- **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A
+  Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
+- The **frame-rate button** (the number at the top centre) switches between 60 and 30 as it is held.
+
 ## Keeping the game resources out of the IPA
 
 With `--split-resources` the IPA is about 200 MB: the 17 GB game image and the startup shaders are written **beside** it,
@@ -103,7 +118,10 @@ image and the shaders from there. A later build of the app keeps them, so you on
 
 - **Shaders compile on the phone.** A Mac precompiles the startup shaders with Apple's Metal compiler, which runs only on
   Apple systems. Without it, each shader compiles on the phone the first time it is used, so the first launches stutter
-  more until the phone's shader cache fills.
+  more until the phone's shader cache fills. The kit ships a **warm-up list** (`pso_list.tsv` in the shader pack) that
+  names, for each render pipeline, the exact shader variants the seed carries, so the phone compiles them ahead of the
+  first play instead of during it. The list is *resolved* against the seed (`shader_list.py resolve`), not exported from
+  the shared list: an export names 60% of variants the seed does not have, and the runtime skips those rows silently.
 - **Game data is loaded at startup.** The game's tables are read from `GameData/totk-late.bin` when the app starts,
   instead of being compiled into it.
 - **The game code goes into reserved space.** It is placed into empty sections the shell reserved for it, and the
