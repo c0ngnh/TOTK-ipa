@@ -178,6 +178,12 @@ def main(tree):
 
     print('the kit\'s patches are in place', flush=True)
 
+    # The patches are edits of the upstream tree, so they must still hold what they say (kit/shim/patch_check.py).
+    # The check is here and not in the workflow, so that the kit's own source carries it: the workflow file can only
+    # be changed by a token with the workflow scope, and that scope is not something a player's token is given.
+    import patch_check
+    patch_check.check(tree)
+
 
 if __name__ == '__main__':
     main(sys.argv[1])
