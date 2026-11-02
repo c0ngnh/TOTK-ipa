@@ -7,6 +7,7 @@ hold what the patch says it does. The check needs no game file and no key: it re
     patch_check.check(tree)     the tree is games/totk of a MacNativeGames checkout, already patched
 """
 import plistlib
+import sys
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent.parent
@@ -88,3 +89,8 @@ def check(tree):
 
     print('patches checked: uncapped clock, controller gestures, split image in memory, thermal state, memory readout, '
           'Metal HUD and the frame interpolation row', flush=True)
+
+
+if __name__ == '__main__':
+    # The patched tree: apply_patches.main(tree) has already run on it.
+    check(Path(sys.argv[1]).resolve())
