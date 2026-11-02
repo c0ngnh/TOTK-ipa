@@ -111,7 +111,9 @@ The resources folder holds:
 - `romfs.sha256` — the image's hash. The app reads it as the mark of a finished copy, so **copy it
   last**, or the app thinks the copy is still running.
 - `shader-seed-<name>.pack.000`, … — the startup shaders as one packed stream (a folder of 64,000
-  small files drops halfway on a phone; the app unpacks the pack on first start).
+  small files drops halfway on a phone; the app unpacks the pack on first start). The pack also
+  carries the warm-up lists: `pso_list.tsv` (the render pipelines the phone compiles ahead of the
+  first play, each naming a shader the seed actually carries), `pso_title.tsv` and `pso_manifest.tsv`.
 - `shader-seed.txt` — which pack to unpack, and the fingerprint that says whether the phone has it.
 - `shared-fonts/` — the six system fonts.
 
@@ -135,6 +137,26 @@ sideloading tool.
 
 ---
 
+## 5a. The on-screen controller
+
+The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad, both sticks and the
+shoulder buttons.
+
+- **Both sticks are drawn at rest**, so you see where they are before you touch them. A finger inside a
+  stick's ring grabs that stick; a finger on a ring's edge is not a "nearest control" contest any more.
+- **The right stick follows a swipe.** A touch on no control in the right third of the screen holds the
+  right stick where it lands, and the ring follows it, so the camera can be turned without looking at
+  the pad.
+- **The ⊙ button at the top centre** (next to the frame-rate button) shows and hides the whole overlay.
+  With a Bluetooth controller connected the pad hides itself; press ⊙ to bring it back for that session,
+  or press it once with no controller to keep the picture clear between launches (the choice is
+  remembered).
+- **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A,
+  left = Y, top = X. A Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
+- The **frame-rate button** (the number at the top centre) switches between 60 and 30 as it is held.
+
+---
+
 ## 6. Why no Mac is needed
 
 The one step that genuinely needs a Mac is compiling the app shell: Apple's Metal compiler and the iOS
@@ -146,7 +168,11 @@ Because the shell is prebuilt and built on macOS, three things differ from a Mac
 
 - **Shaders compile on the phone.** A Mac precompiles them with Apple's Metal compiler; without it,
   each shader compiles on the phone the first time it is used, so the first launches stutter more until
-  the phone's shader cache fills.
+  the phone's shader cache fills. The kit ships a **warm-up list** (`pso_list.tsv` in the shader pack)
+  that names, for each render pipeline, the exact shader variants the seed carries, so the phone
+  compiles them ahead of the first play instead of during it. The list is *resolved* against the seed
+  (`shader_list.py resolve`), not exported from the shared list: an export names 60% of variants the
+  seed does not have, and the runtime skips those rows silently.
 - **Game data is loaded at startup** from `GameData/totk-late.bin` instead of being compiled in.
 - **The game code goes into reserved space** in the executable, which is then signed again (ad hoc).
   The phone still checks every patched instruction and every embedded hash on start.

@@ -60,6 +60,7 @@ def check_parts():
         (seed / 'seed-manifest.json').write_bytes(b'{"chain":"c"}')
         (seed / 'shader_map.tsv').write_bytes(b'# TOTK control-code-sha256-v1\n')
         (seed / 'pso_title.tsv').write_bytes(b'# list\n')
+        (seed / 'pso_list.tsv').write_bytes(b'# pipelines\n')
         (seed / 'a.metal').write_bytes(b'kernel void k() {}')
         out = root / 'resources'
         parts = game_resources.write_all(image, seed, out)
@@ -69,9 +70,11 @@ def check_parts():
         assert (out / 'romfs.sha256').read_text().strip() == hashlib.sha256(body).hexdigest()
         # The shaders: the pack unpacks to the seed's files.
         files = unpack_seed(out)
-        assert set(files) == {'seed-manifest.json', 'shader_map.tsv', 'pso_title.tsv', 'a.metal'}, sorted(files)
+        assert set(files) == {'seed-manifest.json', 'shader_map.tsv', 'pso_title.tsv', 'pso_list.tsv', 'a.metal'}, sorted(files)
         assert files['a.metal'] == b'kernel void k() {}'
         assert files['pso_title.tsv'] == b'# list\n'
+        # The pipelines list: the runtime reads it beside the shader map (nvn_mtl.m warm_start).
+        assert files['pso_list.tsv'] == b'# pipelines\n'
         # The marker the app reads: the folder name and the fingerprint (64 hex characters).
         mark = (out / 'shader-seed.txt').read_text().splitlines()
         assert len(mark) == 2 and len(mark[1]) == 64, mark

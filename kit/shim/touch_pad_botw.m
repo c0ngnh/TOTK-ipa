@@ -22,6 +22,9 @@
    custom layer off it saves the choice in the pane's preset row (TOTK_PHONE_FPS) for the next start, with it on the
    pane owns the cap, so the button only holds 30 until the next launch.
 
+   The pad's own button (top centre, beside the frame-rate one) shows and hides the whole overlay, so a player who
+   brings a Bluetooth controller can get the picture clear; the choice is kept in NSUserDefaults (TOTK_PAD_HIDDEN).
+
    The physical controllers are the runtime's own (runtime/gamepad.m reads them); the touch layer is hidden while one is
    connected, and comes back when it is removed. */
 typedef struct { CGPoint at; uint64_t bit; NSString *label; CGFloat size; } TouchButton;
@@ -38,6 +41,7 @@ static const CGFloat
     K_FACE_GAP = 50, K_FACE_R = 27,                 // the diamond: the key distance from the centre, the key radius
     K_PILL_DX = 52, K_PILL_Y = 22, K_PILL_W = 50, K_PILL_H = 28,   // − / +: from the screen's midline and the top, size
     K_FPS_R = 15,                                   // the frame-rate button: top centre, level with − / +
+    K_PAD_TOGGLE_DX = 46, K_PAD_TOGGLE_R = 13,      // the pad's own button: beside the frame-rate one, radius
     K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,  // the left stick: mirrors the diamond, the ring as large as the whole diamond
     K_STICK_GRAB = 1.4,                             // how near the ring's centre a touch-down grabs a stick
     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius
@@ -45,29 +49,33 @@ static const CGFloat
     K_LOW_X = 231, K_LOW_Y = 64,                    // the D-pad's centre from the outer edge and the bottom
     K_DPAD_R = 48, K_ARM_W = 17, K_ARM_IN = 11,     // the D-pad: arm outer edge from the centre, half-width, tip from the centre
     K_DPAD_GRAB = 1.3,                              // the D-pad's grab radius (times the outer edge)
-    K_RSTICK_R = 60,                                // the right stick (not drawn): the radius around its centre
+    K_RSTICK_R = 60, K_RKNOB_R = 24,                // the right stick: ring and knob radius
     K_RSWIPE = 1.0 / 3,                             // the right stick's area: this fraction of the width from the right edge
     K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge, radius
 
 static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
 
 @implementation TOTKTouchPad {
-    NSMapTable<UITouch *, NSValue *> *points;
-    NSMapTable<UITouch *, NSValue *> *leftOrigins;    // where each left-stick touch went down
-    NSMapTable<UITouch *, NSValue *> *rightOrigins;   // the same for the camera stick
-    NSMapTable<UITouch *, NSNumber *> *owner;         // touch → the control it holds (the key for C_BTN, << 8)
-    BOOL gamepad, concealed;                          // a controller is connected; the layer is hidden for it
+    NSMapTable<UITouch *, NSValue *> *points;         // touch → where it is now
+    NSMapTable<UITouch *, NSNumber *> *owner;         // touch → the control it holds (the key for C_BTN, the stick for C_STICK, << 8)
+    UITouch *_stick[2];                                // the touch holding each stick (0 left, 1 right)
+    CGPoint _centre[2];                               // each stick's centre: its home, or where the finger landed
+    CGPoint _drawn[2];                                // the centre each ring was last drawn at
+    BOOL _dynamic[2];                                 // the stick follows the finger (it was grabbed away from its home)
+    BOOL gamepad, padHidden, padForced;               // a controller is connected; the player hid the overlay; the player showed it over a controller
     NSTimer *hideTimer;
     CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];
-    CAShapeLayer *_ring, *_knob;
+    CAShapeLayer *_ring[2], *_knob[2];                // the left and the right stick's ring and knob
+    CAShapeLayer *_controls;                          // every control layer: hidden together by the pad's own button
     CAShapeLayer *_fps; CATextLayer *_fpsLabel; BOOL _fpsHeld;
+    CAShapeLayer *_toggle; CATextLayer *_toggleLabel; BOOL _toggleHeld;
     UIImpactFeedbackGenerator *_touchFeedback;        // one short feedback per press edge
     unsigned _hapticSticks;
     BOOL _stickShown;
     uint64_t _faceBits, _btnBits;
 }
 
-enum { C_NONE = 0, C_STICK, C_DPAD, C_BTN, C_FACE, C_FPS };
+enum { C_NONE = 0, C_STICK, C_DPAD, C_BTN, C_FACE, C_FPS, C_TOGGLE };
 
 static CAShapeLayer *shape(CALayer *parent) {
     CAShapeLayer *l = [CAShapeLayer layer];
@@ -98,20 +106,26 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
             [_touchFeedback prepare];
         }
         points = [NSMapTable strongToStrongObjectsMapTable];
-        leftOrigins = [NSMapTable strongToStrongObjectsMapTable];
-        rightOrigins = [NSMapTable strongToStrongObjectsMapTable];
         owner = [NSMapTable strongToStrongObjectsMapTable];
+        /* The player's choice (the pad's own button) is kept between launches. */
+        padHidden = [NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_PAD_HIDDEN"];
+        /* The controls live in one layer, so the pad's own button can hide them all at once; the button itself is on
+           the view's own layer, so it stays visible and can bring them back. */
         CAShapeLayer *controls = [CAShapeLayer layer]; [self.layer addSublayer:controls];
-        _ring = shape(controls); _ring.fillColor = k_ringFill.CGColor;
-        _knob = shape(controls);
-        CAShapeLayer *in = [CAShapeLayer layer]; in.fillColor = nil; in.strokeColor = k_line.CGColor; in.lineWidth = 1.5;
-        [_knob addSublayer:in];
+        _controls = controls;
+        for (int i = 0; i < 2; i++) {
+            _ring[i] = shape(controls); _ring[i].fillColor = k_ringFill.CGColor;
+            _knob[i] = shape(controls);
+            CAShapeLayer *in = [CAShapeLayer layer]; in.fillColor = nil; in.strokeColor = k_line.CGColor; in.lineWidth = 1.5;
+            [_knob[i] addSublayer:in];
+        }
         static NSString *const names[B_N] = {@"A", @"B", @"X", @"Y", @"L3", @"R3", @"L", @"R", @"ZL", @"ZR", @"+", @"−"};
         for (int b = 0; b < B_N; b++) {
             _key[b] = shape(controls);
             if (names[b]) _label[b] = label(_key[b], names[b]);   // the D-pad arms carry no label
         }
         _fps = shape(controls); _fpsLabel = label(_fps, @"60");
+        _toggle = shape(self.layer); _toggleLabel = label(_toggle, padHidden ? @"⊘" : @"⊙");
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserver:self selector:@selector(controllersChanged:) name:GCControllerDidConnectNotification object:nil];
         [center addObserver:self selector:@selector(controllersChanged:) name:GCControllerDidDisconnectNotification object:nil];
@@ -139,13 +153,21 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
         });
     if (hidden == gamepad) return;
     gamepad = hidden; [hideTimer invalidate]; hideTimer = nil;
-    if (gamepad) [self conceal]; else { concealed = NO; [self setNeedsLayout]; }
+    if (gamepad) [self conceal]; else [self setNeedsLayout];
+    [self applyVisibility];
+}
+
+/* The overlay's visibility: hidden while a controller is connected and hidden when the player turned it off with the
+   pad's own button. The button itself stays on screen either way: it is how the overlay comes back. */
+- (void)applyVisibility {
+    _controls.hidden = (gamepad && !padForced) || padHidden;
+    _toggle.hidden = NO;
 }
 
 - (void)conceal {
-    concealed = YES;
     /* Fingers on the screen when it hides would otherwise hold their buttons and sticks. */
-    [points removeAllObjects]; [leftOrigins removeAllObjects]; [rightOrigins removeAllObjects]; [owner removeAllObjects];
+    [points removeAllObjects]; [owner removeAllObjects];
+    _stick[0] = _stick[1] = nil; _dynamic[0] = _dynamic[1] = NO;
     [self recompute];
 }
 
@@ -158,6 +180,26 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
     }];
 }
 - (void)concealIfIdle { if (gamepad && !points.count) [self conceal]; }
+
+/* The pad's own button: it shows or hides the whole overlay, so a player with a Bluetooth controller can have the
+   picture to itself. The choice is kept between launches. */
+- (void)togglePad {
+    /* With a controller connected the overlay is hidden on its own; the button then brings it back for as long as the
+       controller stays (the player may want both), and hides it again after. */
+    if (gamepad && !padForced) {
+        padForced = YES;
+        _toggleLabel.string = @"⊘";
+        [self applyVisibility];
+        return;
+    }
+    padForced = NO;
+    padHidden = !padHidden;
+    [NSUserDefaults.standardUserDefaults setBool:padHidden forKey:@"TOTK_PAD_HIDDEN"];
+    /* Fingers on the screen when the pad goes would otherwise hold its buttons and sticks. */
+    if (padHidden) [self conceal];
+    _toggleLabel.string = padHidden ? @"⊘" : @"⊙";
+    [self applyVisibility];
+}
 
 /* ---- Layout ---- */
 - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
@@ -176,8 +218,24 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
                   case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); }
 }
 - (CGPoint)stickHome { CGRect s = self.corner; return side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u); }
+/* The right stick's home: inward of and below the A/B/X/Y diamond, as on a Pro Controller. Its ring is drawn at rest,
+   like Breath of the Wild's (the ring at the bottom right of the game picture). */
+- (CGPoint)rightStickHome { CGRect s = self.corner; return side(s, 1, K_LOW_X * self.u, CGRectGetMaxY(s) - K_LOW_Y * self.u); }
 - (CGFloat)stickR { return K_STICK_R * self.u; }
 - (CGFloat)rightStickR { return K_RSTICK_R * self.u; }
+- (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u; }
+/* The right stick's centre: its home, unless a finger grabbed it away from the home (a swipe in the right third), in
+   which case the ring follows the finger. */
+- (CGPoint)stickCentre:(int)i { return _dynamic[i] ? _centre[i] : (i ? self.rightStickHome : self.stickHome); }
+/* The knob's offset from the stick's centre, clamped to the ring. */
+- (CGPoint)stickOffset:(int)i {
+    if (!_stick[i]) return CGPointZero;
+    CGPoint h = [self stickCentre:i];
+    CGPoint now = [points objectForKey:_stick[i]].CGPointValue;
+    CGFloat dx = now.x - h.x, dy = now.y - h.y, d = hypot(dx, dy), R = [self stickR:i];
+    if (d > R) { dx *= R / d; dy *= R / d; }
+    return CGPointMake(dx, dy);
+}
 - (BOOL)inRightArea:(CGPoint)p { CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
 - (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u); }
 - (CGFloat)dpadR { return K_DPAD_R * self.u; }
@@ -195,6 +253,8 @@ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
     return CGRectMake(c.x - w / 2, c.y - h / 2, w, h);
 }
 - (CGPoint)fpsCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u); }
+/* The pad's own button: beside the frame-rate one, so a Bluetooth controller can have the picture to itself. */
+- (CGPoint)toggleCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s) + K_PAD_TOGGLE_DX * self.u, CGRectGetMinY(s) + K_PILL_Y * self.u); }
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 
@@ -212,6 +272,7 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
     return -1;
 }
 - (BOOL)inFps:(CGPoint)p { return dist(p, self.fpsCenter) <= K_FPS_R * self.u * 1.6; }
+- (BOOL)inToggle:(CGPoint)p { return dist(p, self.toggleCenter) <= K_PAD_TOGGLE_R * self.u * 1.6; }
 - (uint64_t)faceAt:(CGPoint)p {
     uint64_t m = 0; CGFloat r = self.faceR * 1.25;
     for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
@@ -230,7 +291,7 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
 
 /* ---- State ---- */
 - (void)recompute {
-    uint64_t face = 0, btn = 0; BOOL fps = NO;
+    uint64_t face = 0, btn = 0; BOOL fps = NO, toggle = NO;
     for (UITouch *t in owner.keyEnumerator) {
         uint64_t v = [owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff);
         if (c == C_FACE) {
@@ -242,50 +303,44 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
             face |= [self dpadAt:[t locationInView:self]];
         } else if (c == C_FPS) {
             fps = YES;
+        } else if (c == C_TOGGLE) {
+            toggle = YES;
         }
     }
-    int32_t lx = 0, ly = 0, rx = 0, ry = 0;
-    CGFloat R = self.stickR;
-    for (UITouch *t in leftOrigins.keyEnumerator) {
-        CGPoint o = [leftOrigins objectForKey:t].CGPointValue, p = [points objectForKey:t].CGPointValue;
-        CGFloat dx = p.x - o.x, dy = o.y - p.y, d = hypot(dx, dy);
-        if (d > R) { dx *= R / d; dy *= R / d; }
-        CGFloat dz = R * K_DEAD;
+    int32_t ax[4] = {0, 0, 0, 0};
+    for (int i = 0; i < 2; i++) {
+        CGPoint o = [self stickOffset:i]; CGFloat R = [self stickR:i], d = hypot(o.x, o.y), dz = R * K_DEAD;
         if (d <= dz) continue;
+        /* Outside the dead zone: 0 rising to full at the full-tilt radius. Up is positive, as the host wants it. */
         CGFloat m = fmin((d - dz) / (R * K_FULL - dz), 1) / d;
-        lx = (int32_t)lrint(dx * m * 32767); ly = (int32_t)lrint(dy * m * 32767);
+        ax[i * 2] = (int32_t)lrint(o.x * m * 32767); ax[i * 2 + 1] = (int32_t)lrint(-o.y * m * 32767);
     }
-    for (UITouch *t in rightOrigins.keyEnumerator) {
-        CGPoint o = [rightOrigins objectForKey:t].CGPointValue, p = [points objectForKey:t].CGPointValue;
-        CGFloat dx = p.x - o.x, dy = o.y - p.y, d = hypot(dx, dy);
-        CGFloat RR = self.rightStickR;
-        if (d > RR) { dx *= RR / d; dy *= RR / d; }
-        CGFloat dz = RR * K_DEAD;
-        if (d <= dz) continue;
-        CGFloat m = fmin((d - dz) / (RR * K_FULL - dz), 1) / d;
-        rx = (int32_t)lrint(dx * m * 32767); ry = (int32_t)lrint(dy * m * 32767);
-    }
-    BOOL changed = face != _faceBits || btn != _btnBits || fps != _fpsHeld;
+    BOOL changed = face != _faceBits || btn != _btnBits || fps != _fpsHeld || toggle != _toggleHeld;
     uint64_t pressed = (face | btn) & ~(_faceBits | _btnBits);
-    unsigned gripping = (leftOrigins.count ? 1u : 0) | (rightOrigins.count ? 2u : 0);
+    unsigned gripping = (_stick[0] ? 1u : 0) | (_stick[1] ? 2u : 0);
     if (pressed || (fps && !_fpsHeld) || (gripping & ~_hapticSticks)) {
         [_touchFeedback impactOccurredWithIntensity:0.6]; [_touchFeedback prepare];
     }
     _hapticSticks = gripping;
-    _faceBits = face; _btnBits = btn; _fpsHeld = fps;
-    RuntimeGamepadState s = {.connected = 1, .buttons = face | btn, .lx = lx, .ly = ly, .rx = rx, .ry = ry};
+    _faceBits = face; _btnBits = btn; _fpsHeld = fps; _toggleHeld = toggle;
+    RuntimeGamepadState s = {.connected = 1, .buttons = face | btn, .lx = ax[0], .ly = ax[1], .rx = ax[2], .ry = ax[3]};
     runtime_touch_pad_set(&s);
-    BOOL stick = leftOrigins.count > 0;
-    if (changed || stick || _stickShown) [self refresh];
+    BOOL stick = _stick[0] || _stick[1];
+    if (changed || stick || _stickShown) [self refresh];   /* also on the release, so the knob returns to the centre */
     _stickShown = stick;
 }
 
 /* ---- Touch ---- */
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    (void)event; concealed = NO; [hideTimer invalidate]; hideTimer = nil;
+    (void)event; [hideTimer invalidate]; hideTimer = nil;
     totk_device_motion_note_touch();   // a finger on the screen takes the aiming from a controller's gyro (phone_motion.m)
     for (UITouch *t in touches) {
-        CGPoint p = [t locationInView:self]; NSValue *v = [NSValue valueWithCGPoint:p]; [points setObject:v forKey:t];
+        CGPoint p = [t locationInView:self]; [points setObject:[NSValue valueWithCGPoint:p] forKey:t];
+        if ([self inToggle:p]) {
+            [owner setObject:@(C_TOGGLE) forKey:t];
+            [self togglePad];   /* shows or hides the overlay, like the upstream button */
+            continue;
+        }
         if ([self inFps:p]) {
             [owner setObject:@(C_FPS) forKey:t];
             [self switchFrameRate];   /* toggles the cap on touch-down, like the upstream button */
@@ -293,33 +348,65 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         }
         int locked = [self lockedAt:p];
         if (locked >= 0) { [owner setObject:@(C_BTN | (locked << 8)) forKey:t]; continue; }
-        /* The face buttons, the D-pad and the sticks: the nearest one takes the touch. */
+        /* The face buttons, the D-pad and the two sticks: the nearest one takes the touch. Each stick is grabbed by a
+           touch inside its own ring (the grab circle is a little wider than the ring), so a finger lands on the stick
+           the player sees, not on whichever one happens to be nearer. */
         uint64_t face = [self faceAt:p];
         CGFloat faceD = face ? MIN(dist(p, [self facePos:B_A]), dist(p, [self facePos:B_B])) : CGFLOAT_MAX;
         CGPoint dc = self.dpadCenter; CGFloat dpadD = dist(p, dc);
         BOOL dpadHit = dpadD <= self.dpadR * K_DPAD_GRAB;
         CGPoint home = self.stickHome; CGFloat stickD = dist(p, home);
         BOOL stickHit = stickD <= self.stickR * K_STICK_GRAB;
-        if (face && (!dpadHit || faceD <= dpadD) && (!stickHit || faceD <= stickD)) {
+        CGPoint rhome = self.rightStickHome; CGFloat rstickD = dist(p, rhome);
+        BOOL rstickHit = rstickD <= self.rightStickR * K_STICK_GRAB;
+        if (face && (!dpadHit || faceD <= dpadD) && (!stickHit || faceD <= stickD) && (!rstickHit || faceD <= rstickD)) {
             [owner setObject:@(C_FACE) forKey:t];   /* the face bits are recomputed from the finger's position */
             continue;
         }
-        if (dpadHit && (!stickHit || dpadD <= stickD)) { [owner setObject:@(C_DPAD) forKey:t]; continue; }
-        if ([self inRightArea:p]) { [rightOrigins setObject:v forKey:t]; continue; }
-        [leftOrigins setObject:v forKey:t];
+        if (dpadHit && (!stickHit || dpadD <= stickD) && (!rstickHit || dpadD <= rstickD)) {
+            [owner setObject:@(C_DPAD) forKey:t]; continue;
+        }
+        /* The two sticks: the nearer ring wins, so a touch between them takes the closer one. A touch on a stick's
+           ring holds it at its home, so the knob sits where the finger is. */
+        if (stickHit || rstickHit) {
+            int idx = (stickHit && rstickHit) ? (stickD <= rstickD ? 0 : 1) : (stickHit ? 0 : 1);
+            _stick[idx] = t; [owner setObject:@(C_STICK | ((uint64_t)idx << 8)) forKey:t];
+            _dynamic[idx] = NO; _centre[idx] = idx ? rhome : home;
+            continue;
+        }
+        /* A touch on no control in the right third holds the right stick, centred where it lands (Breath of the
+           Wild's camera stick): the ring follows the finger, so the stick can be used without looking at it. */
+        if ([self inRightArea:p]) {
+            _stick[1] = t; [owner setObject:@(C_STICK | (1ull << 8)) forKey:t];
+            _dynamic[1] = YES; _centre[1] = p;
+            continue;
+        }
+        /* Anywhere else on the left half: the left stick, also centred where the finger lands. */
+        _stick[0] = t; [owner setObject:@(C_STICK) forKey:t];
+        _dynamic[0] = YES; _centre[0] = p;
     }
     [self recompute];
 }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     (void)event;
-    for (UITouch *t in touches) [points setObject:[NSValue valueWithCGPoint:[t locationInView:self]] forKey:t];
+    for (UITouch *t in touches) {
+        CGPoint p = [t locationInView:self];
+        [points setObject:[NSValue valueWithCGPoint:p] forKey:t];
+        /* A stick's centre follows a finger past its radius, so turning back responds at once. */
+        for (int i = 0; i < 2; i++) {
+            if (!_stick[i] || _stick[i] != t || !_dynamic[i]) continue;
+            CGFloat d = dist(p, _centre[i]), R = [self stickR:i];
+            if (d > R) _centre[i] = CGPointMake(p.x - (p.x - _centre[i].x) * R / d, p.y - (p.y - _centre[i].y) * R / d);
+        }
+    }
     [self recompute];
 }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     (void)event;
     for (UITouch *t in touches) {
-        [points removeObjectForKey:t]; [leftOrigins removeObjectForKey:t]; [rightOrigins removeObjectForKey:t];
+        [points removeObjectForKey:t];
         [owner removeObjectForKey:t];
+        for (int i = 0; i < 2; i++) if (_stick[i] == t) { _stick[i] = nil; _dynamic[i] = NO; }
     }
     [self recompute]; [self hideLater];
 }
@@ -380,16 +467,24 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};
     for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
     CGPoint fc = self.fpsCenter; setPath(_fps, circlePath(fc, K_FPS_R * u)); placeLabel(_fpsLabel, fc, 12 * u);
-    setPath(_ring, circlePath(self.stickHome, self.stickR));
-    CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
-    setPath(_knob, circlePath(CGPointMake(k, k), k));
-    CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
-    in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
+    CGPoint tc = self.toggleCenter; setPath(_toggle, circlePath(tc, K_PAD_TOGGLE_R * u)); placeLabel(_toggleLabel, tc, 13 * u);
+    /* Both sticks' rings: the left one at its home, the right one at its home too (it follows the finger only while a
+       swipe holds it away from there). */
+    for (int i = 0; i < 2; i++) {
+        CGPoint c = i ? self.rightStickHome : self.stickHome;
+        setPath(_ring[i], circlePath(c, [self stickR:i]));
+        _drawn[i] = c;
+        CGFloat k = (i ? K_RKNOB_R : K_KNOB_R) * u; _knob[i].bounds = CGRectMake(0, 0, 2 * k, 2 * k);
+        setPath(_knob[i], circlePath(CGPointMake(k, k), k));
+        CAShapeLayer *in = (CAShapeLayer *)_knob[i].sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
+        in.frame = _knob[i].bounds; in.path = ip; CGPathRelease(ip);
+    }
     [CATransaction commit];
+    [self applyVisibility];
     [self refresh];
 }
 
-- (void)refresh {   /* the pressed state → the fill, the stick → the knob's position */
+- (void)refresh {   /* the pressed state → the fill, the sticks → the knob's position */
     uint64_t all = _faceBits | _btnBits;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     for (int b = 0; b < B_N; b++) {
@@ -399,16 +494,17 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     }
     _fps.fillColor = (_fpsHeld ? k_on : k_idle).CGColor;
     _fpsLabel.foregroundColor = (_fpsHeld ? k_textOn : k_text).CGColor;
-    CGPoint home = self.stickHome;
-    CGPoint knob = home;
-    for (UITouch *t in leftOrigins.keyEnumerator) {
-        CGPoint o = [leftOrigins objectForKey:t].CGPointValue, p = [points objectForKey:t].CGPointValue;
-        CGFloat dx = p.x - o.x, dy = p.y - o.y, d = hypot(dx, dy), R = self.stickR;
-        if (d > R) { dx *= R / d; dy *= R / d; }
-        knob = CGPointMake(o.x + dx, o.y + dy);
-        break;
+    _toggle.fillColor = (_toggleHeld ? k_on : k_idle).CGColor;
+    for (int i = 0; i < 2; i++) {
+        CGPoint h = [self stickCentre:i];
+        CGPoint o = [self stickOffset:i];
+        _knob[i].position = CGPointMake(h.x + o.x, h.y + o.y); _knob[i].fillColor = (_stick[i] ? k_on : k_idle).CGColor;
+        /* A stick's ring follows its centre while a swipe holds it away from the home. */
+        if (!CGPointEqualToPoint(h, _drawn[i])) {
+            setPath(_ring[i], circlePath(h, [self stickR:i]));
+            _drawn[i] = h;
+        }
     }
-    _knob.position = knob; _knob.fillColor = (leftOrigins.count ? k_on : k_idle).CGColor;
     [CATransaction commit];
 }
 

@@ -137,9 +137,17 @@ def seed_for_ios(tree, seed, logs):
     manifest['files'] = {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(seed.iterdir())
                          if f.is_file() and f.name not in ('seed-manifest.json', 'shader_map.tsv')}
     (seed / 'seed-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    # The warm-up lists, resolved against the seed: every variant named as the seed actually serves that bind state,
+    # so the runtime finds the file when it looks the pipeline's shaders up by name (nvn_mtl.m warm_available). The
+    # export's names are the shared list's own, and 60% of them are files this seed does not carry, so the runtime
+    # would skip those rows silently. The main rows go in as pso_list.tsv, next to the shader map, where the runtime
+    # reads them (nvn_mtl.m warm_start); the seed's own pso_manifest.tsv is a different list and keeps its name.
+    # Both files are written after the manifest, so the manifest does not name them and the seed's file whitelist
+    # (totk_shader_seed.h) is not tripped.
     with (logs / 'shader-list.log').open('w') as log:
-        subprocess.run([tree / '.venv/bin/python', tree / 'scripts/shader_list.py', 'export', tree / 'assets/shader_list.tsv',
-                        logs / 'pso_manifest.tsv', seed / 'pso_title.tsv'], cwd=tree, check=True, stdout=log, stderr=subprocess.STDOUT)
+        subprocess.run([tree / '.venv/bin/python', tree / 'scripts/shader_list.py', 'resolve', src,
+                        tree / 'assets/shader_list.tsv', seed / 'pso_list.tsv', seed / 'pso_title.tsv'],
+                       cwd=tree, check=True, stdout=log, stderr=subprocess.STDOUT)
 
 
 def copy_tree(src, dst):

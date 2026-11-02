@@ -10,13 +10,27 @@ computer, and you sideload it.
 ## Start here
 
 **[BUILD_GUIDE.md](BUILD_GUIDE.md)** — the full guide: requirements, the NSP/NSZ conversion scripts, the build commands,
-how to keep the game resources out of the IPA, and how to copy them to the phone.
+how to keep the game resources out of the IPA, how to copy them to the phone, and the on-screen controller.
 
 - **Windows players:** download `TOTK-ipa-Setup.exe` from Releases and run it. The builder it installs asks for your
   game files and makes the IPA.
 - **Linux and Mac players:** download the kit from Releases and follow [kit/README.md](kit/README.md).
 - **Maintainers:** run the **Build TOTK-ipa kit** workflow in Actions to build and publish the kit. It builds from the
   MacNativeGames commit in `kit/MNG_COMMIT`; to move to a newer one, change that file and let the self-tests confirm.
+
+## What is in the kit
+
+| | |
+|---|---|
+| `kit/totk_import.py` | The build: your dump in, an IPA and (with `--split-resources`) the game resources out. |
+| `kit/shim/touch_pad_botw.m` | The on-screen controller, in *Breath of the Wild*'s style. |
+| `kit/scripts/` | The game-file scripts: `convert_game.py`, `scan_firmware.py`, `extract_shared_fonts.py`. |
+| `kit/selftest/` | The self-tests the workflow runs. |
+
+The on-screen pad draws both sticks at rest, lets the right stick follow a swipe, and has a ⊙ button at the top
+centre that shows and hides the overlay (handy with a Bluetooth controller). Physical controllers map by position, as
+on a Switch controller. See [BUILD_GUIDE.md](BUILD_GUIDE.md) §5a.
+
 
 ## Legal
 
