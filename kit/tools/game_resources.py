@@ -102,7 +102,7 @@ def pack_seed(seed, out, say=None):
     folder = f'shader-seed-{fingerprint[:12]}'
     for part_file in sorted(out.glob('.pack.*'), key=lambda p: int(p.name.rsplit('.', 1)[1])):
         part_file.rename(out / f'{folder}{part_file.name}')
-    (out / 'shader-seed.txt').write_text(f'{folder}\n{fingerprint}\n')
+    (out / 'shader-seed.txt').write_bytes(f'{folder}\n{fingerprint}\n'.encode())
     if say:
         say(f'  the shaders: {len(names)} files in {part + 1} part(s), fingerprint {fingerprint}')
     return fingerprint
@@ -112,7 +112,7 @@ def write_all(romfs, seed, out, say=None):
     """The resources folder: the image in parts, the shaders as a pack, and the markers."""
     out.mkdir(parents=True, exist_ok=True)
     parts = split_image(romfs, out, say)
-    (out / 'romfs.sha256').write_text(image_sha256(romfs) + '\n')
+    (out / 'romfs.sha256').write_bytes((image_sha256(romfs) + '\n').encode())
     if seed:
         pack_seed(seed, out, say)
     return parts

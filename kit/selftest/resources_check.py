@@ -54,10 +54,12 @@ def check_parts():
         image.write_bytes(body)
         seed = root / 'seed'
         seed.mkdir()
-        (seed / 'seed-manifest.json').write_text('{"chain":"c"}')
-        (seed / 'shader_map.tsv').write_text('# TOTK control-code-sha256-v1\n')
-        (seed / 'pso_title.tsv').write_text('# list\n')
-        (seed / 'a.metal').write_text('kernel void k() {}')
+        # The files are written in bytes, not in text: on Windows a text write turns the newline into two characters,
+        # and the pack holds the bytes as they are (game_resources.pack_seed reads them raw).
+        (seed / 'seed-manifest.json').write_bytes(b'{"chain":"c"}')
+        (seed / 'shader_map.tsv').write_bytes(b'# TOTK control-code-sha256-v1\n')
+        (seed / 'pso_title.tsv').write_bytes(b'# list\n')
+        (seed / 'a.metal').write_bytes(b'kernel void k() {}')
         out = root / 'resources'
         parts = game_resources.write_all(image, seed, out)
         assert parts == 1, parts

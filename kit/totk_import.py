@@ -172,7 +172,7 @@ def write_resources(tree, out, logs):
     say('4/4 resources: the game image is split into parts (the phone reads them in place)')
     parts = game_resources.split_image(image, out, say)
     say(f'4/4 resources: the image is {parts} part(s)')
-    (out / 'romfs.sha256').write_text(game_resources.image_sha256(image) + '\n')
+    (out / 'romfs.sha256').write_bytes((game_resources.image_sha256(image) + '\n').encode())
     # The shaders: the prepared seed (with the shader map and the warm-up lists), not the raw one.
     staging = tree / 'build/ios-seed-staging'
     seed_for_ios(tree, staging, logs)
