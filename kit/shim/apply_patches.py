@@ -117,6 +117,39 @@ def main(tree):
                  ' }\n',
                  '#4 the parts mapped in memory')
 
+    # --- #8: the shared fonts come from the phone's GameData when it holds them ---
+    # The app carries the six shared fonts (they never change), but the resources folder beside the app carries them
+    # too, so a player who keeps the whole game outside the app has every file in one place. When the phone's
+    # Documents/GameData holds every font its manifest names, they are read from there; otherwise the app's own copy is
+    # used. All of them are checked, not one: the runtime ends the game on a font it cannot open, so a half-copied
+    # folder must not be preferred over the app's complete one.
+    main_m = tree / 'ios/Sources/main.m'
+    replace_once(main_m,
+                 '    setenv("TOTK_SHARED_FONTS",[res stringByAppendingPathComponent:@"shared-fonts"].fileSystemRepresentation,1);\n',
+                 '    /* TOTK-ipa: the shared fonts (the six .bfttf files, from the console\'s firmware): the app carries them,\n'
+                 '       and the resources folder beside it carries them too, so the game is complete in one place. The\n'
+                 '       phone\'s copy is used when it holds every font its manifest names; otherwise the app\'s own copy\n'
+                 '       is used. All of them are checked, not one: the runtime ends the game on a font it cannot open,\n'
+                 '       so a half-copied folder must not be preferred over the app\'s complete one. */\n'
+                 '    NSString *appFonts = [res stringByAppendingPathComponent:@"shared-fonts"];\n'
+                 '    NSString *phoneFonts = [gameData stringByAppendingPathComponent:@"shared-fonts"];\n'
+                 '    BOOL phoneHasFonts = NO;\n'
+                 '    NSData *fontManifest = [NSData dataWithContentsOfFile:[phoneFonts stringByAppendingPathComponent:@"manifest.json"]];\n'
+                 '    NSDictionary *fontRows = fontManifest ? [NSJSONSerialization JSONObjectWithData:fontManifest options:0 error:nil] : nil;\n'
+                 '    NSArray *fontList = [fontRows[@"fonts"] isKindOfClass:NSArray.class] ? fontRows[@"fonts"] : nil;\n'
+                 '    if (fontList.count) {\n'
+                 '        phoneHasFonts = YES;\n'
+                 '        for (NSDictionary *row in fontList) {\n'
+                 '            NSString *fontName = [row[@"type"] isKindOfClass:NSNumber.class] && [row[@"name"] isKindOfClass:NSString.class]\n'
+                 '                ? [NSString stringWithFormat:@"%@-%@.bfttf", row[@"type"], row[@"name"]] : nil;\n'
+                 '            if (!fontName || ![fm fileExistsAtPath:[phoneFonts stringByAppendingPathComponent:fontName]]) { phoneHasFonts = NO; break; }\n'
+                 '        }\n'
+                 '    }\n'
+                 '    setenv("TOTK_SHARED_FONTS",(phoneHasFonts ? phoneFonts : appFonts).fileSystemRepresentation,1);\n'
+                 '    if (!phoneHasFonts && fontList.count)\n'
+                 '        fprintf(stderr, "[totk] the shared fonts in the phone folder are incomplete; the app copy is used\\n");\n',
+                 '#8 the shared fonts from the phone\'s GameData')
+
     # --- #7: the MetalFX frame interpolation, in the Settings pane ---
     # The runtime has the frame interpolation (gfx/nvn/totk_mfx.m) and its own settings panel can turn it on, but that
     # panel is Mac only (runtime_settings_toggle is empty on iOS), so the phone could not reach it. The runtime reads

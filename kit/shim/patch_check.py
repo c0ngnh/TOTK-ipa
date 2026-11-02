@@ -83,12 +83,23 @@ def check(tree):
             if text and ('帧' in text or '補' in text or '内存' in text):
                 assert ' · ' in text, f'{field} of {spec.get("Key")} is not bilingual: {text}'
 
+    # #8: the shared fonts come from the phone's GameData when it holds them.
+    main_fonts = (tree / 'ios/Sources/main.m').read_text()
+    assert 'phoneFonts' in main_fonts, 'the phone\'s shared fonts are not read'
+    assert 'appFonts' in main_fonts, 'the app\'s own shared fonts are not the fallback'
+    assert 'setenv("TOTK_SHARED_FONTS",(phoneHasFonts ? phoneFonts : appFonts).fileSystemRepresentation,1);' in main_fonts, \
+        'the phone\'s fonts are not preferred'
+    # Every font the manifest names is checked: the runtime ends the game on a font it cannot open.
+    assert 'fontList.count' in main_fonts, 'the font list is not read'
+    assert 'phoneHasFonts = NO; break;' in main_fonts, 'a missing font does not fall back to the app\'s copy'
+    assert '@"fonts"' in main_fonts, 'the manifest\'s font rows are not read'
+
     # The rows the kit adds must not disturb the pane's own order.
     assert keys.index('TOTK_MFX') > keys.index('TOTK_TAA'), 'the interpolation row must follow the MetalFX group'
     assert keys.index('TOTK_METAL_HUD') > keys.index('TOTK_FPS_OVERLAY'), 'the HUD row belongs to the interface group'
 
     print('patches checked: uncapped clock, controller gestures, split image in memory, thermal state, memory readout, '
-          'Metal HUD and the frame interpolation row', flush=True)
+          'Metal HUD, the frame interpolation row and the shared fonts', flush=True)
 
 
 if __name__ == '__main__':

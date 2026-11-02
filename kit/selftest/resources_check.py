@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""The game resources beside the app: the RomFS image in parts and the startup shaders as a packed stream.
+"""The game resources beside the app: the RomFS image in parts, the startup shaders as a packed stream and the shared
+fonts.
 
 Checks that the parts add up to the image and are read back in the order the runtime reads them
-(runtime/romfs.c open_chunks), that the packed stream is the one the app unpacks (ios/Sources/main.m seed_unpack), and
-that the markers the app reads name what is there.
+(runtime/romfs.c open_chunks), that the packed stream is the one the app unpacks (ios/Sources/main.m seed_unpack), that
+the markers the app reads name what is there, and that the shared fonts are the ones the manifest names.
 
     usage: resources_check.py"""
-import hashlib, struct, sys, tempfile
+import hashlib, json, struct, sys, tempfile
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
@@ -96,8 +97,42 @@ def check_parts():
         print(f'resources checked: {parts} image part(s), {len(files)} shader file(s) in the pack')
 
 
+def check_fonts():
+    """The shared fonts: the six files the manifest names, each with its size and hash, and the manifest itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        fonts = root / 'fonts'
+        fonts.mkdir()
+        rows = []
+        for t in range(6):
+            data = bytes(range(256)) * (t + 1)
+            (fonts / f'{t}-font{t}.bfttf').write_bytes(data)
+            rows.append(dict(type=t, name=f'font{t}', bfttf_bytes=len(data), font_bytes=len(data) - 8,
+                             sha256=hashlib.sha256(data).hexdigest()))
+        (fonts / 'manifest.json').write_text(json.dumps(dict(status='pass', fonts=rows)))
+        out = root / 'resources'
+        n = game_resources.copy_fonts(fonts, out / 'shared-fonts')
+        assert n == 6, n
+        for r in rows:
+            p = out / 'shared-fonts' / f"{r['type']}-{r['name']}.bfttf"
+            data = p.read_bytes()
+            assert len(data) == r['bfttf_bytes'], r
+            assert hashlib.sha256(data).hexdigest() == r['sha256'], r
+        assert json.loads((out / 'shared-fonts' / 'manifest.json').read_text())['status'] == 'pass'
+        # A font that does not match the manifest is refused, not copied.
+        (fonts / '0-font0.bfttf').write_bytes(b'wrong')
+        try:
+            game_resources.copy_fonts(fonts, root / 'bad')
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError('a font that does not match the manifest was copied')
+        print(f'fonts checked: {n} shared font(s), each against the manifest')
+
+
 def main():
     check_parts()
+    check_fonts()
 
 
 if __name__ == '__main__':

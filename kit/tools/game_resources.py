@@ -10,8 +10,12 @@ drops halfway. The phone unpacks the shaders on its first start.
     python3.14 game_resources.py --romfs <romfs.bin> --seed <shader-seed folder> --out <folder>
 
 The order matters: the app reads romfs.sha256 as the mark of a finished copy, so it is written last.
+
+The shared fonts (the six .bfttf files) are in the app as well: they come from the console's firmware, they never
+change, and the game needs them for its text. They are written here too, so the resources folder is the whole game in
+one place: the app prefers this copy when the phone holds it (kit/shim/apply_patches.py's patch of ios/Sources/main.m).
 """
-import argparse, hashlib
+import argparse, hashlib, json
 from pathlib import Path
 
 PART = 1 << 30          # the part size: a phone's file copy drops on one file of 17 GB
@@ -108,13 +112,43 @@ def pack_seed(seed, out, say=None):
     return fingerprint
 
 
-def write_all(romfs, seed, out, say=None):
-    """The resources folder: the image in parts, the shaders as a pack, and the markers."""
+def copy_fonts(fonts, out, say=None):
+    """The six shared fonts into the resources folder.
+
+    The app carries them too (they never change), so this copy is what a player who keeps the game outside the app
+    has in one place; the app prefers the phone's copy when it holds all six. The names and the hashes are the
+    manifest's: the runtime checks each file against GameData/game-data/shared-fonts.txt when it loads them.
+    """
+    fonts = Path(fonts)
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads((fonts / 'manifest.json').read_text())
+    if manifest.get('status') != 'pass':
+        raise SystemExit(f'{fonts}: the shared font manifest is not a pass')
+    for f in manifest['fonts']:
+        name = f"{f['type']}-{f['name']}.bfttf"
+        src = fonts / name
+        if not src.is_file():
+            raise SystemExit(f'{fonts}: {name} is missing')
+        data = src.read_bytes()
+        if len(data) != f['bfttf_bytes'] or hashlib.sha256(data).hexdigest() != f['sha256']:
+            raise SystemExit(f'{name}: the shared font does not match the manifest')
+        (out / name).write_bytes(data)
+    (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if say:
+        say(f'  the shared fonts: {len(manifest["fonts"])} fonts ({sum(f["bfttf_bytes"] for f in manifest["fonts"]) / 1048576:.0f} MB)')
+    return len(manifest['fonts'])
+
+
+def write_all(romfs, seed, out, say=None, fonts=None):
+    """The resources folder: the image in parts, the shaders as a pack, the shared fonts, and the markers."""
     out.mkdir(parents=True, exist_ok=True)
     parts = split_image(romfs, out, say)
     (out / 'romfs.sha256').write_bytes((image_sha256(romfs) + '\n').encode())
     if seed:
         pack_seed(seed, out, say)
+    if fonts:
+        copy_fonts(fonts, out / 'shared-fonts', say)
     return parts
 
 
@@ -122,6 +156,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--romfs', type=Path, help='the extracted RomFS image (romfs.bin)')
     ap.add_argument('--seed', type=Path, help='the startup shader seed folder')
+    ap.add_argument('--fonts', type=Path, help='the shared fonts folder (the six .bfttf files and their manifest)')
     ap.add_argument('--out', type=Path, required=True, help='the folder to write the resources into')
     a = ap.parse_args()
     out = a.out.expanduser().resolve()
@@ -129,7 +164,8 @@ def main():
         raise SystemExit('--romfs is needed')
     romfs = a.romfs.expanduser().resolve()
     seed = a.seed.expanduser().resolve() if a.seed else None
-    parts = write_all(romfs, seed, out, print)
+    fonts = a.fonts.expanduser().resolve() if a.fonts else None
+    parts = write_all(romfs, seed, out, print, fonts)
     print(f'  the image: {parts} part(s)')
 
 

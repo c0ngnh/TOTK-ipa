@@ -161,10 +161,12 @@ RESOURCE_PART = 1 << 30     # the part size of the resources on the phone: a cop
 
 
 def write_resources(tree, out, logs):
-    """The game resources beside the app: the RomFS image in parts and the startup shaders as a packed stream.
+    """The game resources beside the app: the RomFS image in parts, the startup shaders as a packed stream and the
+    shared fonts.
 
-    The app carries neither. The phone reads them from its own Documents folder, in GameData (ios/Sources/main.m), so
-    a new build of the app installs in minutes and keeps the resources."""
+    The app carries neither the image nor the shaders. The phone reads them from its own Documents folder, in GameData
+    (ios/Sources/main.m), so a new build of the app installs in minutes and keeps the resources. The app does carry the
+    shared fonts, but they are written here as well, so the folder holds the whole game in one place."""
     romfs = tree / f'extracted/{VERSION}/romfs'
     image = romfs / 'romfs.bin'
     if not image.is_file():
@@ -178,6 +180,12 @@ def write_resources(tree, out, logs):
     seed_for_ios(tree, staging, logs)
     game_resources.pack_seed(staging, out, say)
     shutil.rmtree(staging, ignore_errors=True)
+    # The shared fonts: they are in the app as well, but the resources folder is the whole game in one place.
+    fonts = tree / 'extracted/firmware/shared-fonts'
+    if fonts.is_dir():
+        game_resources.copy_fonts(fonts, out / 'shared-fonts', say)
+    else:
+        say('4/4 resources: no shared fonts folder; the app keeps its own copy')
     return parts
 
 
