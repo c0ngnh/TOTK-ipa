@@ -40,6 +40,8 @@ TOTK_BASE_TITLE = '0100f2c0115b6000'
 def find_tool(name, extra_dirs=()):
     """A helper binary: the kit's own build first, then the PATH."""
     here = Path(__file__).resolve().parent
+    # The script sits in the kit's tools/ folder: the binaries are in the kit's bin/, and in a checkout of the
+    # repository the kit itself is in kit/, so both layouts are looked at.
     dirs = [here.parent / 'bin/linux-x64', here.parent / 'bin/windows-x64',
             here.parent.parent / 'kit/bin/linux-x64', here.parent.parent / 'kit/bin/windows-x64']
     dirs += list(extra_dirs)
@@ -75,7 +77,8 @@ def decompress_nsz(nsz_file: Path, keys: Path, out_dir: Path, venv: Path = None)
             return nsz_file
         raise SystemExit(f'expected an .nsz update, got {nsz_file.name}')
     here = Path(__file__).resolve().parent
-    # The kit's import tool creates the environment with nsz installed; reuse it if it is there.
+    # The kit's import tool creates the environment with nsz installed; reuse it if it is there. The import tool's
+    # work folder is next to the game file, so the kit folder and the current folder are both looked at.
     candidates = []
     if venv:
         candidates.append(venv)

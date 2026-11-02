@@ -54,13 +54,13 @@ The kit takes the base game as an `.xci` or an `.nsp` and the update as an `.nsp
 separately:
 
 ```sh
-python3.14 scripts/convert_game.py update ~/Games/update.nsz --keys ~/keys/prod.keys --output-dir ~/Games
+python3.14 tools/convert_game.py update ~/Games/update.nsz --keys ~/keys/prod.keys --output-dir ~/Games
 ```
 
 **Check what a game file contains:**
 
 ```sh
-python3.14 scripts/convert_game.py info ~/Games/base.nsp --keys ~/keys/prod.keys
+python3.14 tools/convert_game.py info ~/Games/base.nsp --keys ~/keys/prod.keys
 ```
 
 **Get the system fonts (only for an `.nsp` base game).** An NSP has no system fonts, so they come from
@@ -68,10 +68,10 @@ your console's firmware:
 
 ```sh
 # 1. check the firmware dump holds them
-python3.14 scripts/scan_firmware.py <firmware-nca-dir> --keys ~/keys/prod.keys
+python3.14 tools/scan_firmware.py <firmware-nca-dir> --keys ~/keys/prod.keys
 
 # 2. extract the six fonts (verifies the NCA headers, all IVFC levels and each BFTTF header)
-python3.14 scripts/extract_shared_fonts.py --firmware <firmware-nca-dir> \
+python3.14 tools/extract_shared_fonts.py --firmware <firmware-nca-dir> \
         --keys ~/keys/prod.keys --output ~/Games/shared-fonts
 ```
 
@@ -185,15 +185,15 @@ packages the Windows installer, runs the self-tests, and publishes the release.
 
 ## 7. Scripts
 
-In a release kit (`totk-ipa-kit-*.tar.gz`) the scripts sit in `scripts/`. In a checkout of this
-repository they sit in `kit/scripts/`.
+In a release kit (`totk-ipa-kit-*.tar.gz`) the scripts sit in `tools/`, next to the import tool. In a
+checkout of this repository they sit in `kit/tools/`.
 
 | Script | What it does |
 |---|---|
 | `totk_import.py` | The build. Extracts, verifies, rewrites, translates the shaders, writes the IPA and (with `--split-resources`) the resources folder. |
-| `scripts/convert_game.py` | Converts between the game formats (`update` decompresses an `.nsz` update into an `.nsp`; `info` lists the NCAs of an NSP). |
-| `scripts/scan_firmware.py` | Lists the NCAs of a firmware dump and says whether the shared-font NCAs are all there. |
-| `scripts/extract_shared_fonts.py` | Extracts and verifies the six shared fonts from a firmware dump. |
+| `tools/convert_game.py` | Converts between the game formats (`update` decompresses an `.nsz` update into an `.nsp`; `info` lists the NCAs of an NSP). |
+| `tools/scan_firmware.py` | Lists the NCAs of a firmware dump and says whether the shared-font NCAs are all there. |
+| `tools/extract_shared_fonts.py` | Extracts and verifies the six shared fonts from a firmware dump. |
 | `kit/gui.py` | The Windows builder window. |
 
 Maintainer-only (in this repository, not in the release kit):

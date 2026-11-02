@@ -7,7 +7,7 @@ It is built on [MacNativeGames](https://github.com/ly05010419/MacNativeGames), w
 game's code for Apple chips and rebuilds its graphics on Metal. This kit only moves the game-specific steps of its iOS
 build from a Mac to your computer.
 
-**See [BUILD_GUIDE.md](../BUILD_GUIDE.md) for the full guide** (requirements, the NSP/NSZ conversion scripts, the build
+**See [BUILD_GUIDE.md](BUILD_GUIDE.md) for the full guide** (requirements, the NSP/NSZ conversion scripts, the build
 commands, how to keep the game resources out of the IPA, and how to copy them to the phone).
 
 > **You must supply your own dump and your own `prod.keys`, both from your own Switch.** Neither is in this kit, and
@@ -63,15 +63,15 @@ Sign and install the IPA with your sideloading tool, keeping its entitlements: t
 
 ## The scripts
 
-`scripts/` holds the helpers that prepare the game files before the build. They are standalone: they need
+`tools/` holds the helpers that prepare the game files before the build. They are standalone: they need
 `cryptography` (in the kit's Python environment) and nothing else.
 
 | Script | What it does |
 |---|---|
-| `scripts/convert_game.py update <file.nsz> --keys <prod.keys> --output-dir <dir>` | Decompresses a compressed update into an `.nsp`, with the NCA hash verification. The import tool does this on its own too. |
-| `scripts/convert_game.py info <file.nsp> --keys <prod.keys>` | Lists the NCAs of an NSP: their title ID, content type and size. |
-| `scripts/scan_firmware.py <firmware-nca-dir> --keys <prod.keys>` | Lists the NCAs of a firmware dump and says whether the shared-font NCAs are all there. |
-| `scripts/extract_shared_fonts.py --firmware <firmware-nca-dir> --keys <prod.keys> --output <dir>` | Extracts the six shared fonts from a firmware dump, verifying the NCA headers, all six IVFC levels and each BFTTF header. Only needed for an `.nsp` base game. |
+| `tools/convert_game.py update <file.nsz> --keys <prod.keys> --output-dir <dir>` | Decompresses a compressed update into an `.nsp`, with the NCA hash verification. The import tool does this on its own too. |
+| `tools/convert_game.py info <file.nsp> --keys <prod.keys>` | Lists the NCAs of an NSP: their title ID, content type and size. |
+| `tools/scan_firmware.py <firmware-nca-dir> --keys <prod.keys>` | Lists the NCAs of a firmware dump and says whether the shared-font NCAs are all there. |
+| `tools/extract_shared_fonts.py --firmware <firmware-nca-dir> --keys <prod.keys> --output <dir>` | Extracts the six shared fonts from a firmware dump, verifying the NCA headers, all six IVFC levels and each BFTTF header. Only needed for an `.nsp` base game. |
 
 ## Keeping the game resources out of the IPA
 

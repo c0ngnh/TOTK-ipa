@@ -24,7 +24,7 @@ how to keep the game resources out of the IPA, how to copy them to the phone, an
 |---|---|
 | `kit/totk_import.py` | The build: your dump in, an IPA and (with `--split-resources`) the game resources out. |
 | `kit/shim/touch_pad_botw.m` | The on-screen controller, in *Breath of the Wild*'s style. |
-| `kit/scripts/` | The game-file scripts: `convert_game.py`, `scan_firmware.py`, `extract_shared_fonts.py`. |
+| `kit/tools/` | The game-file scripts: `convert_game.py`, `scan_firmware.py`, `extract_shared_fonts.py`. |
 | `kit/selftest/` | The self-tests the workflow runs. |
 
 The on-screen pad draws both sticks at rest, lets the right stick follow a swipe, and has a ⊙ button at the top
