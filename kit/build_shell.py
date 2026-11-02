@@ -69,6 +69,10 @@ def main():
 
     for name in ('runtime_tables.h', 'romfs_config.h', 'shared_fonts_config.h', 'ios_embed.h', 'embed.S'):
         shutil.copy2(KIT / 'shim' / name, gen / name)
+    # The VR hooks the graphics layer calls by name: they are defined only in the Mac-only blocks of
+    # runtime/game_patches_v143.c, so an iPhone build has none and the link fails. The kit's shim defines them as
+    # nothing doing (the VR camera is off on iOS).
+    shutil.copy2(KIT / 'shim/ios_vr_hooks.c', tree / 'runtime/ios_vr_hooks.c')
     # The on-screen controller: the kit's BOTW-styled one replaces the upstream TOTK layout.
     shutil.copy2(KIT / 'shim/touch_pad_botw.m', tree / 'ios/Sources/touch_pad.m')
     replace_once(tree / 'runtime/loader.c', 'int main(int argc,char **argv) {',
