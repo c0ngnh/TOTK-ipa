@@ -57,7 +57,13 @@ def synthetic_tree(mng, root):
     seed = tree / 'build/shader-seed/v143'
     seed.mkdir(parents=True)
     (seed / 'seed-manifest.json').write_text(json.dumps(dict(chain='c', schema=1, shaders=1, files={})))
-    (seed / ('a' * 64 + '-' + 'b' * 12 + '_b.metal')).write_text('kernel void k() {}')
+    key = 'a' * 64
+    (seed / (key + '-' + 'b' * 12 + '_b.metal')).write_text('kernel void k() {}')
+    # The warm-up lists are resolved against the seed (totk_import.seed_for_ios), and the resolution reads the seed's
+    # shader keys to tell this game's shaders from another version's. The synthetic seed carries one.
+    (seed / 'shader-keys.json').write_text(json.dumps(dict(
+        schema=1, chain='c', version='v143', source_romfs_sha256='0' * 64, keys=[key])))
+    (seed / (key + '.variants')).write_text(json.dumps([dict(variant=key + '-' + 'b' * 12, deps={})]))
     return tree
 
 
