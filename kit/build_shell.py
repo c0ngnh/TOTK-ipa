@@ -77,11 +77,15 @@ def main():
     shutil.copy2(KIT / 'shim/touch_pad_botw.m', tree / 'ios/Sources/touch_pad.m')
     replace_once(tree / 'runtime/loader.c', 'int main(int argc,char **argv) {',
                  'int main(int argc,char **argv) {\n totk_ios_embed_load();   /* TOTK-ipa: the embedded-code hashes from GameData/game-data/embedded-hashes.txt */')
-    # The frame rate is capped at 60. The runtime's own default on the phone is the screen's rate (60 on an iPhone 14,
-    # but 120 on a ProMotion one), and the uncapped clock's ceiling is 240; neither is what this app runs at. The clock's
-    # ceiling is set here, so the game is paced at 60 and a faster screen only shows the same picture more often.
+    # The frame rate. The runtime's own default on the phone is "the screen's rate" (TOTK_UNCAPPED_HZ=display, hle_nvn.c
+    # uncapped_cap): 60 on a 60 Hz iPhone, and the display link is fixed at 60 Hz anyway (frontend_ios.m
+    # TOTK_IOS_LINK_HZ), so the game never draws more frames than the link can show. The kit used to set the ceiling to a
+    # hard 60, which pinned the game to exactly 60 and took away the headroom the runtime leaves for a slow scene; worse,
+    # it competed with the player's own choice: TOTK_PHONE_FPS=30 holds the game at 30 through a separate path
+    # (phone_holds_30), so the hard ceiling only ever fought the custom layer's own frame cap. "display" keeps the
+    # upstream semantics and lets the player's 30 / 60 choice be the only cap.
     replace_once(tree / 'ios/Sources/main.m', '    setenv("TOTK_ROMFS",',
-                 '    setenv("TOTK_UNCAPPED_HZ","60",0);   /* TOTK-ipa: the frame rate is capped at 60 */\n'
+                 '    setenv("TOTK_UNCAPPED_HZ","display",0);   /* TOTK-ipa: the game runs at the screen\'s rate (60 Hz link) */\n'
                  '    setenv("TOTK_ROMFS",')
     # The message when the game image is not on the phone names MacNativeGames' own installer, which the kit's players
     # do not have: they copy the resources folder to the phone themselves.
@@ -92,7 +96,14 @@ def main():
                  ': @"No shaders. Install the game again from the Mac with ios/tools/install_device.py (it copies them to the device).";',
                  ': @"No shaders. Copy the resources folder to the phone (Files › On My iPhone › Tears of the Kingdom › GameData), then open the game again.";')
 
-    # the project as build_ipa.py generates it for this version, plus the late-binding reader
+    # The kit's own additions to the runtime and the app: the controller's system gestures (#2), the split image in
+    # memory (#4), the phone's heat and Low Power Mode (#3), the memory readout and the Metal HUD (#6), and the phone's
+    # own settings file (kit/shim/phone_settings.m).
+    sys.path.insert(0, str(KIT / 'shim'))
+    import apply_patches
+    apply_patches.main(tree)
+
+    # The project as build_ipa.py generates it for this version, plus the late-binding reader
     project = (ios / 'project.yml').read_text()
     if '      - path: ../runtime/loader.c' not in project or '      - path: Gen/embed.S' not in project or '-I../build\n' not in project:
         raise SystemExit('project.yml changed; update kit/build_shell.py')
@@ -103,6 +114,11 @@ def main():
     project = project.replace('      - Settings.bundle', '      - path: Gen/Settings.bundle', 1)
     project = project.replace('          - loader.c', '          - loader.c\n          - game_patches.c')
     project = project.replace('-I../build\n', f'-I../build -DTOTK_GAME_{a.version.upper()}=1\n')
+    # The pane in the device's language (build_ipa.py: the same call). The kit's own rows are written "中文 · English"
+    # too, so they are localised with the rest.
+    sys.path.insert(0, str(ios / 'tools'))
+    import settings_strings
+    settings_strings.localize(settings)
     # The home screen icon: the game's own, as a single-size asset catalog (build_ipa.py). The kit's import tool adds
     # the icon at the app level, so the shell's catalog only has to exist for the build to succeed.
     catalog = gen / 'Assets.xcassets'

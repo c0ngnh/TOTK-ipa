@@ -1,5 +1,6 @@
 #import "touch_pad.h"
 #import "device_motion.h"
+#import "phone_settings.h"
 #import <GameController/GameController.h>
 #import <CoreText/CoreText.h>
 #include <math.h>
@@ -415,7 +416,9 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
 - (void)switchFrameRate {
     BOOL custom = [NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_CUSTOM_PICTURE"];
     int fps = totk_frame_button_target(runtime_phone_fps() == 30);
-    runtime_phone_fps_set(fps);
+    /* TOTK-ipa: through phone_settings.m, so the phone's heat and its Low Power Mode still have the last word (the
+       button's choice is the player's; a hot phone holds 30 until it cools). */
+    phone_frame_cap_set(fps);
     const char *key = totk_frame_button_key(custom);
     if (key) [NSUserDefaults.standardUserDefaults setObject:fps == 30 ? @"30" : @"60" forKey:@(key)];
     _fpsLabel.string = fps == 30 ? @"30" : @"60";
