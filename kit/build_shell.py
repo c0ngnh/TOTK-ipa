@@ -50,11 +50,17 @@ def main():
     if tree.exists():
         shutil.rmtree(tree)
     shutil.copytree(mng / 'games/totk', tree, symlinks=True)
-    # The iOS project of newer MacNativeGames also compiles the VR modules (empty on iOS; the build copies zeldaVR
-    # into the tree), so it has to be there next to games/totk.
+    # The iOS project of newer MacNativeGames also compiles the VR modules (empty on iOS). The project names them
+    # ../zeldaVR/gfx, relative to the ios folder, so they belong in the tree's own zeldaVR folder (build_app.py copies
+    # them there the same way). In the checkout games/totk/zeldaVR is a symlink to ../../zeldaVR, which points outside
+    # the copied tree, so it is replaced by a copy of the real folder.
     zelda = mng / 'zeldaVR'
-    if zelda.is_dir() and not (tree.parent / 'zeldaVR').is_dir():
-        shutil.copytree(zelda, tree.parent / 'zeldaVR', symlinks=True)
+    if not (zelda / 'gfx').is_dir():
+        raise SystemExit(f'{zelda}/gfx is missing: the iOS project compiles the VR modules from it')
+    if (tree / 'zeldaVR').is_symlink() or (tree / 'zeldaVR').is_file():
+        (tree / 'zeldaVR').unlink()
+    if not (tree / 'zeldaVR').is_dir():
+        shutil.copytree(zelda, tree / 'zeldaVR', symlinks=True)
     ios, gen, logs = tree / 'ios', tree / 'ios/Gen', work / 'logs'
     gen.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ios / 'tools'))
