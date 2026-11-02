@@ -8,10 +8,11 @@ Differences from build_ipa.py, all in a copy of games/totk:
   - Gen/embed.S holds an empty 16 KiB placeholder per module section (same names and protections as gen_embed.py's);
   - runtime/loader.c loads that file first thing, and runtime/shared_font.c fills its rows from it;
   - no GameData and no shader seed: the import tool adds both.
+  - ios/Sources/touch_pad.m is kit/shim/touch_pad_botw.m: the on-screen controller in Breath of the Wild's style.
 
     build_shell.py <MacNativeGames checkout> <output folder> [--version v143]
 """
-import argparse, os, shutil, subprocess, sys
+import argparse, json, os, shutil, subprocess, sys
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
@@ -49,30 +50,69 @@ def main():
     if tree.exists():
         shutil.rmtree(tree)
     shutil.copytree(mng / 'games/totk', tree, symlinks=True)
+    # The iOS project of newer MacNativeGames also compiles the VR modules (empty on iOS; the build copies zeldaVR
+    # into the tree), so it has to be there next to games/totk.
+    zelda = mng / 'zeldaVR'
+    if zelda.is_dir() and not (tree.parent / 'zeldaVR').is_dir():
+        shutil.copytree(zelda, tree.parent / 'zeldaVR', symlinks=True)
     ios, gen, logs = tree / 'ios', tree / 'ios/Gen', work / 'logs'
     gen.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ios / 'tools'))
     from xcode_dir import developer_dir
     env = dict(os.environ, DEVELOPER_DIR=developer_dir())
 
-    for name in ('totk_late.h', 'totk_late.c', 'runtime_tables.h', 'romfs_config.h', 'shared_fonts_config.h', 'ios_embed.h', 'embed.S'):
+    for name in ('runtime_tables.h', 'romfs_config.h', 'shared_fonts_config.h', 'ios_embed.h', 'embed.S'):
         shutil.copy2(KIT / 'shim' / name, gen / name)
+    # The on-screen controller: the kit's BOTW-styled one replaces the upstream TOTK layout.
+    shutil.copy2(KIT / 'shim/touch_pad_botw.m', tree / 'ios/Sources/touch_pad.m')
     replace_once(tree / 'runtime/loader.c', 'int main(int argc,char **argv) {',
-                 'int main(int argc,char **argv) {\n totk_late_load();   /* TOTK-ipa: the tables from GameData/totk-late.bin */')
-    replace_once(tree / 'runtime/shared_font.c', 'static const FontRow rows[SHARED_FONT_COUNT]={SHARED_FONT_ROWS};',
-                 'static FontRow rows[SHARED_FONT_COUNT];   /* TOTK-ipa: filled from GameData/totk-late.bin */')
-    replace_once(tree / 'runtime/shared_font.c', 'static void load(void){',
-                 'static void load(void){\n totk_late_fill_fonts(rows,sizeof rows[0],SHARED_FONT_COUNT);')
+                 'int main(int argc,char **argv) {\n totk_ios_embed_load();   /* TOTK-ipa: the embedded-code hashes from GameData/game-data/embedded-hashes.txt */')
+    # The frame rate is capped at 60. The runtime's own default on the phone is the screen's rate (60 on an iPhone 14,
+    # but 120 on a ProMotion one), and the uncapped clock's ceiling is 240; neither is what this app runs at. The clock's
+    # ceiling is set here, so the game is paced at 60 and a faster screen only shows the same picture more often.
+    replace_once(tree / 'ios/Sources/main.m', '    setenv("TOTK_ROMFS",',
+                 '    setenv("TOTK_UNCAPPED_HZ","60",0);   /* TOTK-ipa: the frame rate is capped at 60 */\n'
+                 '    setenv("TOTK_ROMFS",')
+    # The message when the game image is not on the phone names MacNativeGames' own installer, which the kit's players
+    # do not have: they copy the resources folder to the phone themselves.
+    replace_once(tree / 'ios/Sources/main.m',
+                 ': @"No game data. On the Mac, copy it to Files › On My iPhone › %@ › GameData with ios/tools/install_device.py --game-data."), app];',
+                 ': @"No game data. Copy the resources folder to Files › On My iPhone › %@ › GameData, then open the game again."), app];')
+    replace_once(tree / 'ios/Sources/main.m',
+                 ': @"No shaders. Install the game again from the Mac with ios/tools/install_device.py (it copies them to the device).";',
+                 ': [NSString stringWithFormat:@"No shaders. Copy the resources folder to Files › On My iPhone › %@ › GameData, then open the game again.", app];')
 
     # the project as build_ipa.py generates it for this version, plus the late-binding reader
     project = (ios / 'project.yml').read_text()
-    if '          - loader.c' not in project or '      - path: Gen/embed.S' not in project or '-I../build\n' not in project:
+    if '      - path: ../runtime/loader.c' not in project or '      - path: Gen/embed.S' not in project or '-I../build\n' not in project:
         raise SystemExit('project.yml changed; update kit/build_shell.py')
+    # The Settings pane, copied so it can be localised (build_ipa.py: settings_strings.localize).
+    settings = gen / 'Settings.bundle'
+    shutil.rmtree(settings, ignore_errors=True)
+    shutil.copytree(ios / 'Settings.bundle', settings)
+    project = project.replace('      - Settings.bundle', '      - path: Gen/Settings.bundle', 1)
     project = project.replace('          - loader.c', '          - loader.c\n          - game_patches.c')
     project = project.replace('-I../build\n', f'-I../build -DTOTK_GAME_{a.version.upper()}=1\n')
-    project = project.replace('      - path: Gen/embed.S', '      - path: Gen/embed.S\n      - path: Gen/totk_late.c')
+    # The home screen icon: the game's own, as a single-size asset catalog (build_ipa.py). The kit's import tool adds
+    # the icon at the app level, so the shell's catalog only has to exist for the build to succeed.
+    catalog = gen / 'Assets.xcassets'
+    shutil.rmtree(catalog, ignore_errors=True)
+    appicon = catalog / 'AppIcon.appiconset'
+    appicon.mkdir(parents=True)
+    (catalog / 'Contents.json').write_text(json.dumps({'info': {'author': 'xcode', 'version': 1}}))
+    shutil.copy2(KIT / 'shim/AppIcon-1024.png', appicon / 'icon-1024.png')
+    (appicon / 'Contents.json').write_text(json.dumps(
+        {'images': [{'filename': 'icon-1024.png', 'idiom': 'universal', 'platform': 'ios', 'size': '1024x1024'}],
+         'info': {'author': 'xcode', 'version': 1}}))
+    project = project.replace('      - path: Gen/embed.S\n',
+                              '      - path: Gen/embed.S\n      - path: Gen/Assets.xcassets\n')
+    project = project.replace('      CODE_SIGN_STYLE: Manual\n',
+                              '      CODE_SIGN_STYLE: Manual\n      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon\n')
+    # The frame rate is capped at 60 by the runtime's own clock (TOTK_UNCAPPED_HZ, the display link's 60 Hz). Letting
+    # the phone run the display faster than 60 Hz would only make it hotter without showing more frames.
+    project = project.replace('        CADisableMinimumFrameDurationOnPhone: true',
+                              '        CADisableMinimumFrameDurationOnPhone: false')
     (ios / 'project.generated.yml').write_text(project)
-
     deps = tree / 'build/ios-deps'
     run([sys.executable, ios / 'tools/build_deps.py', deps], tree, logs / 'ios-dependencies.log', env)
     shutil.copytree(deps / 'include', gen / 'deps/include', dirs_exist_ok=True)

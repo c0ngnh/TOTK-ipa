@@ -55,6 +55,32 @@ Sign and install the IPA with your sideloading tool, keeping its entitlements: t
 
 **The IPA contains the game made from your files. It is for your own use only: do not share it.**
 
+## Keeping the game resources out of the IPA
+
+With `--split-resources` the IPA is about 200 MB: the 17 GB game image and the startup shaders are written **beside** it,
+in a folder named after the IPA (`Tears of the Kingdom-resources`). You copy that folder to the phone yourself, and the
+app reads it from there.
+
+    40|python3.14 totk_import.py ~/Games/totk.xci --update ~/Games/totk-1.4.3.nsp -k ~/keys/prod.keys \
+        -o ~/Games/TOTK.ipa --split-resources
+
+The resources folder holds:
+
+- `romfs.bin.000`, `romfs.bin.001`, …: the game image in parts of 1 GiB. A single 17 GB file cannot be copied onto a
+  phone reliably, so it is split; the app reads the parts in place.
+- `romfs.sha256`: the image's hash. The app reads it as the mark of a finished copy, so copy it **last**, or the app
+  thinks the copy is still running.
+- `shader-seed-<name>.pack.000`, …: the startup shaders as one packed stream. The seed holds 64,000 small files, which a
+  folder copy onto the phone drops halfway; the app unpacks the pack on its first start.
+- `shader-seed.txt`: which pack to unpack, and the fingerprint that says whether the phone already has it.
+
+Copy the whole folder into the app's folder on the phone, with the Files app:
+
+    Files › On My iPhone › Tears of the Kingdom › GameData
+
+(The app's folder is named after the app in the Files app: **Tears of the Kingdom**.) Then start the game: it reads the
+image and the shaders from there. A later build of the app keeps them, so you only copy them once.
+
 ## What is different from building on a Mac
 
 - **Shaders compile on the phone.** A Mac precompiles the startup shaders with Apple's Metal compiler, which runs only on

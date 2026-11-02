@@ -75,7 +75,10 @@ def main():
         with zipfile.ZipFile(out) as z:
             names = set(z.namelist())
             shell_files = {'Payload/TOTK.app/' + p.relative_to(shell).as_posix() for p in shell.rglob('*') if p.is_file()}
-            for want in (*shell_files, 'Payload/TOTK.app/GameData/totk-late.bin',
+            for want in (*shell_files, 'Payload/TOTK.app/GameData/game-data/runtime-tables.bin',
+                         'Payload/TOTK.app/GameData/game-data/romfs-config.txt',
+                         'Payload/TOTK.app/GameData/game-data/shared-fonts.txt',
+                         'Payload/TOTK.app/GameData/game-data/embedded-hashes.txt',
                          'Payload/TOTK.app/GameData/romfs/romfs.bin', 'Payload/TOTK.app/GameData/shared-fonts/0-font0.bfttf',
                          'Payload/TOTK.app/GameData/shader-seed/seed-manifest.json',
                          'Payload/TOTK.app/GameData/shader-seed/pso_title.tsv'):
@@ -86,8 +89,28 @@ def main():
             exe = z.read('Payload/TOTK.app/TOTK')
         m = macho.MachO(exe)
         sizes = {s.name: s.size for seg in m.segments for s in seg.sections}
-        assert sizes[('__TOTKX', '__mainx0')] == 0x2604000, hex(sizes[('__TOTKX', '__mainx0')])
+        assert sizes[('__TOTKX', '__mainx0')] == 0x2604000, hex(sizes[('__TOTKX', '__mainx0'))
+
+        # The split: the image and the shaders stay out of the app, and the resources go beside it.
+        T.build_payload(tree, shell, root / 'payload-split', logs, image_outside=True)
+        out2 = root / 'out/TOTK-split.ipa'
+        T.write_ipa(root / 'payload-split', out2, 'small')
+        with zipfile.ZipFile(out2) as z:
+            names = set(z.namelist())
+            assert 'Payload/TOTK.app/GameData/romfs/runtime-index.bin' in names, 'the index must stay in the app'
+            assert 'Payload/TOTK.app/GameData/romfs/romfs.bin' not in names, 'the image must not be in the app'
+            assert not any(n.startswith('Payload/TOTK.app/GameData/shader-seed/') for n in names), 'the shaders must not be in the app'
+        resources = root / 'resources'
+        parts = T.write_resources(tree, resources, logs)
+        assert parts == 1, parts
+        assert (resources / 'romfs.bin.000').is_file(), 'the image part is missing'
+        assert (resources / 'romfs.sha256').is_file(), 'the image marker is missing'
+        assert (resources / 'shader-seed.txt').is_file(), 'the shader marker is missing'
+        mark = (resources / 'shader-seed.txt').read_text().splitlines()
+        assert len(mark) == 2 and len(mark[1]) == 64, mark
+        assert (resources / f'{mark[0]}.pack.000').is_file(), 'the shader pack is missing'
         print(f'IPA assembled: {len(names)} entries, {out.stat().st_size / 2**20:.0f} MiB; executable sections filled')
+        print(f'split IPA: {out2.stat().st_size / 2**20:.0f} MiB, the resources beside it: {parts} image part(s)')
 
 
 if __name__ == '__main__':

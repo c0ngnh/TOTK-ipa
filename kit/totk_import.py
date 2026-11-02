@@ -10,7 +10,7 @@ It runs MacNativeGames' own build steps for your files (steps 1-3 of build_app.p
 for Apple chips, prepare the startup shaders), then puts the result into the shell instead of compiling it in:
   - main's text with the game patches (kit/tools/export_v143.py; build_ipa.py runs the Mac host for this),
   - the module parts into the executable's placeholder sections, signed again ad hoc (kit/tools/macho.py),
-  - the tables the shell reads at launch (kit/tools/late_config.py -> GameData/totk-late.bin),
+  - the tables the shell reads at launch (kit/tools/late_config.py -> GameData/game-data),
   - GameData as build_ipa.py lays it out (RomFS, overlays, shared fonts, shader seed).
 The shaders are left as Metal source: the phone compiles each one the first time it is used (a Mac would precompile
 them, which needs Apple's Metal compiler).
@@ -24,7 +24,7 @@ from pathlib import Path
 KIT = Path(__file__).resolve().parent
 MNG = KIT / 'MacNativeGames'
 sys.path.insert(0, str(KIT / 'tools'))
-import export_v143, late_config, macho
+import export_v143, late_config, macho, game_resources
 
 VERSION = 'v143'
 NAMES = late_config.NAMES
@@ -157,7 +157,59 @@ def link_or_copy(src, dst):
         shutil.copy2(src, dst)
 
 
-def build_payload(tree, shell, payload, logs):
+RESOURCE_PART = 1 << 30     # the part size of the resources on the phone: a copy of one 17 GB file drops
+
+
+def write_resources(tree, out, logs):
+    """The game resources beside the app: the RomFS image in parts and the startup shaders as a packed stream.
+
+    The app carries neither. The phone reads them from its own Documents folder, in GameData (ios/Sources/main.m), so
+    a new build of the app installs in minutes and keeps the resources."""
+    romfs = tree / f'extracted/{VERSION}/romfs'
+    image = romfs / 'romfs.bin'
+    if not image.is_file():
+        raise SystemExit(f'no RomFS image to split: {image}')
+    say('4/4 resources: the game image is split into parts (the phone reads them in place)')
+    parts = game_resources.split_image(image, out, say)
+    say(f'4/4 resources: the image is {parts} part(s)')
+    (out / 'romfs.sha256').write_text(game_resources.image_sha256(image) + '\n')
+    # The shaders: the prepared seed (with the shader map and the warm-up lists), not the raw one.
+    staging = tree / 'build/ios-seed-staging'
+    seed_for_ios(tree, staging, logs)
+    game_resources.pack_seed(staging, out, say)
+    shutil.rmtree(staging, ignore_errors=True)
+    return parts
+
+
+def install_icon(app, tree, game, keys, logs):
+    """The app's home screen icon: the game's own, from the control NCA of the base game.
+
+    The shell is built without any game file, so it has no icon; the icon is taken from the player's own dump here and
+    the Info.plist is given the keys that point at it (the older CFBundleIconFiles form, which every iOS reads)."""
+    import plistlib
+    icons = app / 'Icons'
+    with (logs / 'app-icon.log').open('w') as log:
+        p = subprocess.run([sys.executable, KIT / 'tools/extract_app_icon_ios.py', str(game),
+                            '--keys', str(keys), '--output', str(icons), '--tree', str(tree)],
+                           stdout=log, stderr=subprocess.STDOUT)
+    if p.returncode or not (icons / 'AppIcon60x60@3x.png').is_file():
+        raise SystemExit(f'the app icon could not be made; see {logs / "app-icon.log"}')
+    info = app / 'Info.plist'
+    data = plistlib.loads(info.read_bytes())
+    data['CFBundleIcons'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['AppIcon60x60@3x'],
+                                                     'UIPrerenderedIcon': False}}
+    data['CFBundleIconFiles'] = ['AppIcon60x60@3x']
+    data['CFBundleIconName'] = 'AppIcon'
+    info.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY, sort_keys=True))
+    say(f'4/4 app: the game icon installed ({len(list(icons.glob("*.png")))} images)')
+
+
+def build_payload(tree, shell, payload, logs, game=None, keys=None, image_outside=False):
+    """The app in the payload folder.
+
+    With image_outside the 17 GB RomFS image and the startup shaders stay out of the app: the app carries only the
+    index, and the phone keeps the image and the shaders in its own Documents folder (the same split MacNativeGames'
+    build_ipa.py --image-outside makes). The resources are written beside the app by write_resources."""
     tree, shell, payload, logs = tree.resolve(), shell.resolve(), payload.resolve(), logs.resolve()
     app = payload / 'Payload/TOTK.app'
     if payload.exists():
@@ -183,19 +235,25 @@ def build_payload(tree, shell, payload, logs):
     (res / 'romfs').mkdir()
     for f in romfs.iterdir():
         if f.is_file():
+            # The index stays in the app (it changes with the build); the image does not, so it can live on the phone.
+            if image_outside and f.name.startswith('romfs.bin'):
+                continue
             link_or_copy(f, res / 'romfs' / f.name)
     for src, dst in [(tree / f'extracted/{VERSION}/romfs-patches', res / 'romfs-patches'),
                      (tree / f'extracted/{VERSION}/romfs-patches-out', res / 'romfs-patches-out'),
                      (tree / 'extracted/firmware/shared-fonts', res / 'shared-fonts')]:
         copy_tree(src, dst)
-    seed_for_ios(tree, res / 'shader-seed', logs)
-    size = late_config.write(res / 'totk-late.bin', layout, romfs, tree / 'extracted/firmware/shared-fonts', hashes)
+    if not image_outside:
+        seed_for_ios(tree, res / 'shader-seed', logs)
+    size = late_config.write(res / 'game-data', layout, romfs, tree / 'extracted/firmware/shared-fonts', hashes, VERSION)
     say(f'4/4 app: game tables written ({size} bytes)')
+    if game and keys:
+        install_icon(app, tree, game, keys, logs)
     return app
 
 
-def write_ipa(payload, out):
-    say(f'4/4 app: writing {out} (stored, not compressed: about 18 GB)')
+def write_ipa(payload, out, about='about 18 GB'):
+    say(f'4/4 app: writing {out} (stored, not compressed: {about})')
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + '.partial')
     executable = payload / 'Payload/TOTK.app/TOTK'
@@ -223,6 +281,9 @@ def main(argv):
     ap.add_argument('-k', '--keys', type=Path, required=True, help='your prod.keys')
     ap.add_argument('-o', '--out', type=Path, help='the IPA to write (default: next to the game file)')
     ap.add_argument('--work', type=Path, help='work folder (default: TOTK_ipa_build next to the game file)')
+    ap.add_argument('--split-resources', action='store_true',
+                    help='keep the game image and the shaders out of the IPA: they are written beside it instead, and you '
+                         'copy them to the phone (Files › On My iPhone › TOTK › GameData). The IPA is then about 200 MB')
     fonts = ap.add_mutually_exclusive_group()
     fonts.add_argument('--firmware', type=Path, help='unpacked firmware NCA directory (an NSP base game has no system fonts)')
     fonts.add_argument('--shared-fonts', type=Path, help='previously extracted shared-font directory')
@@ -283,10 +344,17 @@ def main(argv):
                 raise SystemExit(f'{script} failed; see {logs / (script + ".log")}')
     prepare_seed(tree, bins, logs)   # reuses a seed already prepared from the same files and tools
     payload = work / 'ipa-payload'
-    build_payload(tree, shell, payload, logs)
-    write_ipa(payload, out)
+    build_payload(tree, shell, payload, logs, game, keys, image_outside=a.split_resources)
+    write_ipa(payload, out, 'about 200 MB' if a.split_resources else 'about 18 GB')
     shutil.rmtree(payload)
-    say(f'done in {(time.time() - t0) / 60:.0f} min: {out} ({out.stat().st_size / 2**30:.1f} GiB)')
+    if a.split_resources:
+        # The resources beside the app: the phone reads them from its own Documents folder.
+        resources = out.with_name(out.stem + '-resources')
+        write_resources(tree, resources, logs)
+        say(f'done in {(time.time() - t0) / 60:.0f} min: {out} ({out.stat().st_size / 2**30:.1f} GiB)')
+        say(f'the game resources are in {resources}: copy them to the phone (Files › On My iPhone › TOTK › GameData)')
+    else:
+        say(f'done in {(time.time() - t0) / 60:.0f} min: {out} ({out.stat().st_size / 2**30:.1f} GiB)')
     say('Sign and install it with your sideloading tool, keeping its entitlements. It holds your game: do not share it.')
 
 

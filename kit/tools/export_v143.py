@@ -145,9 +145,67 @@ def aspect_install(m, sites, stub_off, data_off):
         m.put(site, branch(site, s))
 
 
+def patch_render_res(m):
+    """The scene's render size: the game's own (1920x1080), read from the data page.
+
+    The newer MacNativeGames always writes the render size (the Mac's picture modes set it, and the export leaves the
+    game's own size there), so the four instructions that load it are replaced by the load from the data page."""
+    data = (m.file_size + 0x3fff) & ~0x3fff
+    if data + 24 > m.size:
+        raise ExportError('1.4.3 render-resolution patch layout')
+    sites = [(0x585e48, 0x1e220160), (0x585e50, 0xbd0cc660), (0x585e54, 0x1e220140), (0x585e60, 0xbd0cca60)]
+    for off, original in sites:
+        if m.word(off) != original:
+            raise ExportError('1.4.3 render-resolution patch: original instruction mismatch')
+    want = [adrp(3, 0x585e48, data), 0x2d420460, 0xbd0cc660, 0xbd0cca61]
+    for (off, _), w in zip(sites, want):
+        m.put(off, w)
+
+
+def patch_fixed_res(m):
+    """The dynamic resolution controller's scale held at 100 %.
+
+    The game steps the scene's resolution between tiers (24 frame-time samples predict the next frame's cost); the one
+    instruction that moves the tier's scale into the result is replaced by a move of 1.0f, so every tier is 100 %."""
+    off, original, replacement = 0x5848a8, 0x2a1703e9, 0x52a7f009
+    if m.word(off) != original:
+        raise ExportError('1.4.3 fixed resolution patch: main does not match 1.4.3')
+    m.put(off, replacement)
+
+
+def patch_fade_increment(m):
+    """The LOD / actor fade counters at four sites, clamped to a step of at least 1.
+
+    The game divides a byte counter by 20 and adds trunc(2.1 * ratio30) to it each frame; above about 63.5 fps that
+    increment is zero and the counter stalls, so objects stay invisible or half transparent. Each site branches to a
+    veneer that computes max(trunc(2.1 * ratio30), 1)."""
+    stub = ((m.text_end + 15) & ~15) + 928
+    if stub + 80 > ((m.text_end + 0xfff) & ~0xfff):
+        raise ExportError('1.4.3 fade veneer layout')
+    veneer = [0x1e380008, 0x7100011f, 0x1a9f1508, 0x3942792a, 0x0b080148, 0x39027928, branch(stub + 24, 0x0a7ad4),
+              0x1e380008, 0x7100011f, 0x1a9f1508, 0x0b080128, branch(stub + 44, 0x95dd2c),
+              0x1e38000a, 0x7100015f, 0x1a9f154a, branch(stub + 60, 0x6155e8),
+              0x1e38000a, 0x7100015f, 0x1a9f154a, branch(stub + 76, 0x615664)]
+    guards = [(0x0a7ac4, 0x1e380008), (0x0a7ac8, 0x3942792a), (0x0a7acc, 0x0b080148), (0x0a7ad0, 0x39027928),
+              (0x95dd24, 0x1e380008), (0x95dd28, 0x0b080128), (0x6155e4, 0x1e38000a), (0x615660, 0x1e38000a)]
+    for off, original in guards:
+        if m.word(off) != original:
+            raise ExportError('1.4.3 fade check: original instruction mismatch')
+    if not m.zero(stub, len(veneer) * 4):
+        raise ExportError('1.4.3 fade veneer padding not empty')
+    m.put(stub, *veneer)
+    m.put(0x0a7ac4, branch(0x0a7ac4, stub), 0xd503201f, 0xd503201f, 0xd503201f)
+    m.put(0x95dd24, branch(0x95dd24, stub + 28), 0xd503201f)
+    m.put(0x6155e4, branch(0x6155e4, stub + 48))
+    m.put(0x615660, branch(0x615660, stub + 64))
+
+
 def game_patches(m):
     patch_realtime(m)
+    patch_render_res(m)
+    patch_fixed_res(m)
     patch_slowmo_bounce(m)
+    patch_fade_increment(m)
     aspect_install(m, [0x628c74, 0xb43460, 0x1ff04f4, 0x253fbb0], ((m.text_end + 15) & ~15) + 48,
                    (m.file_size + 0x3fff) & ~0x3fff)
     for off, original, _ in FPS60:

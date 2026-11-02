@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""GameData/totk-late.bin (read by kit/shim/totk_late.c) and the embedded module parts (ios/tools/gen_embed.py's split).
+"""The game data folder the app reads at launch (runtime/game_data.c) and the embedded module parts
+(ios/tools/gen_embed.py's split).
 
-totk-late.bin holds what build_ipa.py would compile into the app from the player's files: the module tables of
-scripts/prepare_runtime.py (analysis/<version>-port/runtime-layout.json), the RomFS identity of
-scripts/prepare_romfs_backend.py, the shared fonts of scripts/prepare_shared_fonts.py and gen_embed.py's hashes.
-All integers little-endian; text fields are 80 bytes, NUL-terminated.
+The app carries no game file: what MacNativeGames' build_ipa.py would compile into the app from the player's files is
+read at start from GameData/game-data, the same place upstream's own build writes it:
+  - runtime-tables.bin: the module tables of scripts/prepare_runtime.py (analysis/<version>-port/runtime-layout.json),
+    in the layout runtime/loader.c load_tables reads (a 64-byte header, one 208-byte record per module, then the
+    symbols, relocations and gates, then the symbol names);
+  - romfs-config.txt: the RomFS identity of scripts/prepare_romfs_backend.py;
+  - shared-fonts.txt: the shared fonts of scripts/prepare_shared_fonts.py;
+  - embedded-hashes.txt: gen_embed.py's hashes, which bind the app's contents to the verified rewrites.
 """
 import hashlib, json, struct
 from pathlib import Path
 
 PG = 0x4000
-HEX = 80
+HEADER, RECORD = 64, 208
 MASK = (1 << 64) - 1
 NAMES = ('main', 'subsdk0', 'sdk')
 
@@ -51,16 +56,46 @@ def embed_parts(rewritten, name, text):
     return parts, [hashlib.sha256(p).hexdigest() for p in parts]
 
 
-def text(s):
-    b = s.encode()
-    if len(b) >= HEX:
-        raise ValueError(f'text field too long: {s}')
-    return b + bytes(HEX - len(b))
+def runtime_tables(modules, version):
+    """runtime-tables.bin in the layout runtime/loader.c load_tables reads."""
+    strings, arrays, records = bytearray(), bytearray(), []
+
+    def place(blob):
+        arrays.extend(bytes(-len(arrays) % 8))
+        arrays.extend(blob)
+        return HEADER + RECORD * len(modules) + len(arrays) - len(blob)
+
+    for m in modules:
+        names = []
+        for s in m['symbols']:
+            names.append(len(strings))
+            strings.extend(s['name'].encode() + b'\0')
+        symbols = b''.join(struct.pack('<QQIBBBx', s['value'], s['size'], n, int(s['defined']), s['binding'], s['type'])
+                           for s, n in zip(m['symbols'], names))
+        relocs = b''.join(struct.pack('<QIIq', r['where'], r['kind'], r['symbol'], r['addend']) for r in m['relocs'])
+        gates = b''.join(struct.pack('<QQII', g['ret'], g['original'], int(g['timer']), g['arg']) for g in m['gates'])
+        l, t = m['layout'], {int(k): v for k, v in m['tags'].items()}
+        records.append(struct.pack('<16s72s13Q4I', m['name'].encode(), m['sha256'].encode(), m['size'], l['TEXT_END'],
+                                   l['RO_OFF'], l['DATA_OFF'], l['PATCH_OFF'] % 2**64, l['KEY_PAGE_OFF'], t.get(12, 0),
+                                   m['ctor_flag'], t.get(25, 0), t.get(27, 0), place(symbols), place(relocs), place(gates),
+                                   len(m['symbols']), len(m['relocs']), len(m['gates']), 0))
+    arrays.extend(bytes(-len(arrays) % 8))
+    strings_offset = HEADER + RECORD * len(modules) + len(arrays)
+    size = strings_offset + len(strings)
+    header = struct.pack('<8s8sIIQQQQQ', b'TOTKTAB1', version.encode(), len(modules), 1, modules[0]['probe_plt'],
+                         modules[0]['probe_slot'], strings_offset, len(strings), size)
+    if len(header) != HEADER or any(len(r) != RECORD for r in records):
+        raise ValueError('runtime-tables.bin layout')
+    return bytes(header) + b''.join(records) + bytes(arrays) + bytes(strings)
 
 
-def write(out, layout, romfs_folder, fonts_folder, embed_hashes):
-    """layout: runtime-layout.json; romfs_folder: extracted/<version>/romfs (index.json, runtime-index.bin);
+def write(out, layout, romfs_folder, fonts_folder, embed_hashes, version='v143'):
+    """Writes the game data folder: runtime-tables.bin, romfs-config.txt, shared-fonts.txt and embedded-hashes.txt.
+
+    layout: runtime-layout.json; romfs_folder: extracted/<version>/romfs (index.json, runtime-index.bin);
     fonts_folder: extracted/firmware/shared-fonts (manifest.json); embed_hashes: {name: [x0, w, x1]}."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
     modules = json.loads(Path(layout).read_text())
     if [m['name'] for m in modules] != list(NAMES):
         raise ValueError('module order')
@@ -69,35 +104,25 @@ def write(out, layout, romfs_folder, fonts_folder, embed_hashes):
     fonts = json.loads((Path(fonts_folder) / 'manifest.json').read_text())
     if fonts.get('status') != 'pass' or [f['type'] for f in fonts['fonts']] != list(range(6)):
         raise ValueError('shared font manifest')
-    main = modules[0]
-    b = bytearray(b'TOTKLAT1' + struct.pack('<II', 1, len(modules)))
-    b += struct.pack('<QQQ', main['probe_plt'], main['probe_slot'], romfs['romfs_size'])
-    b += text(romfs['romfs_sha256']) + text(index_sha)
-    b += struct.pack('<II', len(fonts['fonts']), 0)
+
+    (out / 'runtime-tables.bin').write_bytes(runtime_tables(modules, version))
+    (out / 'romfs-config.txt').write_text(
+        f'ROMFS_IMAGE_SIZE {romfs["romfs_size"]}\nROMFS_IMAGE_SHA256 {romfs["romfs_sha256"]}\n'
+        f'ROMFS_INDEX_SHA256 {index_sha}\n')
+
+    lines = []
     for f in fonts['fonts']:
         name = f"{f['type']}-{f['name']}.bfttf"
         if (Path(fonts_folder) / name).stat().st_size != f['bfttf_bytes']:
             raise ValueError(f'shared font {name} size')
-        b += text(name) + struct.pack('<QQ', f['bfttf_bytes'], f['font_bytes']) + text(f['sha256'])
-    for m in modules:
-        l, tags = m['layout'], {int(k): v for k, v in m['tags'].items()}
-        pool = bytearray()
-        offsets = []
-        for s in m['symbols']:
-            offsets.append(len(pool))
-            pool += s['name'].encode() + b'\0'
-        b += text(m['name']) + text(m['sha256'])
-        b += struct.pack('<10Q', *[v & MASK for v in (m['size'], l['TEXT_END'], l['RO_OFF'], l['DATA_OFF'], l['PATCH_OFF'],
-                                                      l['KEY_PAGE_OFF'], tags.get(12, 0), m['ctor_flag'], tags.get(25, 0),
-                                                      tags.get(27, 0))])
-        b += struct.pack('<IIII', len(m['symbols']), len(m['relocs']), len(m['gates']), len(pool))
-        b += b''.join(text(h) for h in embed_hashes[m['name']])
-        for r in m['relocs']:
-            b += struct.pack('<QIIq', r['where'], r['kind'], r['symbol'], r['addend'])
-        for s, at in zip(m['symbols'], offsets):
-            b += struct.pack('<IIIIQQ', at, int(s['defined']), s['binding'], s['type'], s['value'] & MASK, s['size'] & MASK)
-        for g in m['gates']:
-            b += struct.pack('<QQII', g['ret'], g['original'], int(g['timer']), g['arg'])
-        b += pool
-    Path(out).write_bytes(bytes(b))
-    return len(b)
+        lines.append(f'FONT{f["type"]}_FILE {name}\nFONT{f["type"]}_FILE_BYTES {f["bfttf_bytes"]}\n'
+                     f'FONT{f["type"]}_FONT_BYTES {f["font_bytes"]}\nFONT{f["type"]}_SHA256 {f["sha256"]}\n')
+    (out / 'shared-fonts.txt').write_text(''.join(lines))
+
+    embedded = []
+    for name in NAMES:
+        x0, w, x1 = embed_hashes[name]
+        embedded.append(f'{name}_X0 {x0}\n{name}_W {w}\n{name}_X1 {x1}\n')
+    (out / 'embedded-hashes.txt').write_text(''.join(embedded))
+
+    return sum(f.stat().st_size for f in out.iterdir() if f.is_file())

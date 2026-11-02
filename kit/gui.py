@@ -54,6 +54,7 @@ class Builder(tk.Tk):
         self.lines = queue.Queue()
         self.vars = {k: tk.StringVar() for k in ('base', 'update', 'keys', 'fonts', 'out', 'work')}
         self.fonts_kind = tk.StringVar(value='firmware')
+        self.split_resources = tk.BooleanVar(value=True)
         self.load_settings()
         style = ttk.Style(self)
         if WINDOWS and 'vista' in style.theme_names():
@@ -137,14 +138,22 @@ class Builder(tk.Tk):
 
     def page_output(self):
         f = ttk.Frame(self.pages)
-        self.header(f, 'Where to save', 'The IPA is about 18 GB. The work folder keeps intermediate files (about 60 GB); '
-                                        'building again reuses them, and you can delete the folder afterwards.')
+        self.header(f, 'Where to save', 'The IPA is about 18 GB, or about 200 MB with the game resources kept out of it '
+                                        '(they are then written beside the IPA, and you copy them to the phone). The work '
+                                        'folder keeps intermediate files (about 60 GB); building again reuses them, and '
+                                        'you can delete the folder afterwards.')
         self.row(f, 'Save the IPA as', self.vars['out'], self.pick_out)
         self.row(f, 'Work folder', self.vars['work'], lambda: self.pick_dir('work'))
+        ttk.Checkbutton(f, text='Keep the game resources out of the IPA (write them beside it instead)',
+                        variable=self.split_resources).pack(anchor='w', pady=(10, 0))
+        self.resources_note = ttk.Label(f, text='', style='Hint.TLabel', wraplength=660)
+        self.resources_note.pack(anchor='w', pady=(6, 0))
         self.space = ttk.Label(f, text='', style='Hint.TLabel')
         self.space.pack(anchor='w', pady=(10, 0))
         for k in ('work', 'out'):
             self.vars[k].trace_add('write', lambda *_: self.update_space())
+        self.split_resources.trace_add('write', lambda *_: self.update_resources())
+        self.update_resources()
         return f
 
     def page_build(self):
@@ -253,12 +262,20 @@ class Builder(tk.Tk):
         free = free_gb(self.vars['work'].get() or '.')
         self.space.configure(text='' if free is None else f'Free space on the work folder\'s drive: {free:.0f} GB')
 
+    def update_resources(self):
+        self.resources_note.configure(text=(
+            'The image (17 GB) and the startup shaders are written beside the IPA, in a folder named after it. Copy that '
+            'folder to the phone with the Files app (Files › On My iPhone › Tears of the Kingdom › GameData), then start '
+            'the game: it reads them from there. A later build of the app keeps them.' if self.split_resources.get() else ''))
+
     # ---- build ----
     def start(self):
         self.save_settings()
         v = {k: x.get().strip().strip('"') for k, x in self.vars.items()}
         args = [str(console_python()), '-u', str(KIT / 'totk_import.py'), v['base'], '--update', v['update'], '-k', v['keys'],
                 '-o', v['out'], '--work', v['work']]
+        if self.split_resources.get():
+            args.append('--split-resources')
         if file_kind(v['base']) == 'nsp' and v['fonts']:
             args += [f'--{self.fonts_kind.get()}', v['fonts']]
         env = dict(os.environ, PYTHONUTF8='1', PYTHONUNBUFFERED='1')
@@ -317,8 +334,14 @@ class Builder(tk.Tk):
             self.status.configure(text=f'Done in {minutes:.0f} minutes')
             self.step.configure(text=self.vars['out'].get())
             self.after_box.pack(fill='x', pady=(10, 0))
-            messagebox.showinfo(TITLE, 'The IPA is ready.\n\nInstall it with Sideloadly or AltStore. It contains your game: '
-                                       'it is for your own use only.', parent=self)
+            if self.split_resources.get():
+                messagebox.showinfo(TITLE, 'The IPA is ready.\n\nInstall it with Sideloadly or AltStore, then copy the '
+                                           'resources folder (beside the IPA) to the phone: Files › On My iPhone › '
+                                           'Tears of the Kingdom › GameData. The IPA holds your game: it is for your own '
+                                           'use only.', parent=self)
+            else:
+                messagebox.showinfo(TITLE, 'The IPA is ready.\n\nInstall it with Sideloadly or AltStore. It contains your '
+                                           'game: it is for your own use only.', parent=self)
         else:
             text = self.log.get('1.0', 'end')
             last = [l for l in text.splitlines() if re.search(r'ERROR|error|failed|needs|no such|must', l)]
@@ -371,11 +394,14 @@ class Builder(tk.Tk):
                 var.set(data[k])
         if data.get('fonts_kind') in ('firmware', 'shared-fonts'):
             self.fonts_kind.set(data['fonts_kind'])
+        if 'split_resources' in data:
+            self.split_resources.set(bool(data['split_resources']))
 
     def save_settings(self):
         try:
             SETTINGS.parent.mkdir(parents=True, exist_ok=True)
-            SETTINGS.write_text(json.dumps({**{k: v.get() for k, v in self.vars.items()}, 'fonts_kind': self.fonts_kind.get()}))
+            SETTINGS.write_text(json.dumps({**{k: v.get() for k, v in self.vars.items()}, 'fonts_kind': self.fonts_kind.get(),
+                                            'split_resources': self.split_resources.get()}))
         except OSError:
             pass
 
