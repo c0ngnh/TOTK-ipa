@@ -144,8 +144,8 @@ def main():
                             '    totk_spirv_cross_free\n')
         sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
             spvc / 'spirv_cross_inproc.o', '-o', str(out / 'totk_spirv_cross.dll'), str(def_file)])
-        sh(['dlltool', '-d', str(out / 'totk_spirv_cross.dll'), '-D', str(def_file),
-            '-l', str(out / 'totk_spirv_cross.lib')])
+        # The import library is made from the .def file: dlltool's -d is the def file it reads, -l the library it writes.
+        sh(['dlltool', '-d', str(def_file), '-l', str(out / 'totk_spirv_cross.lib')])
     else:
         sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
             spvc / 'spirv_cross_inproc.o', '-o', out / 'libtotk_spirv_cross.so'])
