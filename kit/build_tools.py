@@ -80,7 +80,6 @@ def main():
     linux = sys.platform.startswith('linux')
     windows = sys.platform == 'win32'
     exe = '.exe' if windows else ''
-    so_suffix = '.dll' if windows else '.so'
 
     # hactool: build_app's own fetch and patches; the Linux / Windows file view is swapped in just before make
     real_run = B.run
@@ -132,8 +131,24 @@ def main():
         sh([cxx, *flags, '-fPIC', '-c', src / n, '-o', spvc / (n + '.o')])
     sh([cxx, *flags, '-fPIC', '-I', src, '-c', mng / 'games/totk/tools/totk_xlate/spirv_cross_inproc.cpp',
         '-o', spvc / 'spirv_cross_inproc.o'])
-    sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
-        spvc / 'spirv_cross_inproc.o', '-o', out / f'libtotk_spirv_cross{so_suffix}'])
+    # Windows: the service's DllImport("totk_spirv_cross") needs a library of that name, and the NativeAOT link
+    # needs an import library for it. A MinGW shared library exports every symbol it defines, so the DLL would
+    # carry the C++ symbols of SPIRV-Cross as well. A .def file names the two entry points the service calls and
+    # nothing else, and the import library is made from it (dlltool). The library is named totk_spirv_cross.dll,
+    # the name the service loads.
+    if windows:
+        def_file = work / 'totk_spirv_cross.def'
+        def_file.write_text('LIBRARY totk_spirv_cross\n'
+                            'EXPORTS\n'
+                            '    totk_spirv_cross_msl\n'
+                            '    totk_spirv_cross_free\n')
+        sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
+            spvc / 'spirv_cross_inproc.o', '-o', str(out / 'totk_spirv_cross.dll'), str(def_file)])
+        sh(['dlltool', '-d', str(out / 'totk_spirv_cross.dll'), '-D', str(def_file),
+            '-l', str(out / 'totk_spirv_cross.lib')])
+    else:
+        sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
+            spvc / 'spirv_cross_inproc.o', '-o', out / 'libtotk_spirv_cross.so'])
 
     # the shader translator
     prebuilt = mng / 'games/totk/prebuilt/macos-arm64/totk_xlate'
@@ -172,7 +187,7 @@ def main():
             proj.write_text(text)
         sh([a.dotnet, 'publish', x / 'app/totk_xlate.csproj', '-c', 'Release', '-r', rid, '-p:PublishAot=true',
             '-p:InvariantGlobalization=true', f'-p:RyuSrc={x / "ryujinx-src"}',
-            f'-p:TotkSpirvCrossLib={out / ("libtotk_spirv_cross" + so_suffix)}',
+            f'-p:TotkSpirvCrossLib={out / ("totk_spirv_cross.lib" if windows else "libtotk_spirv_cross.so")}',
             '-o', x / 'out'])
         shutil.copy2(x / f'out/totk_xlate{exe}', out / f'totk_xlate{exe}')
         # The translator must carry the fixes its sources describe: a translator that ignores the job's
