@@ -126,12 +126,12 @@ def main(tree):
     settings_rows.main(tree / 'ios/Settings.bundle')
 
     # --- #3 and #6: the phone's thermal state, Low Power Mode, the memory readout and the Metal HUD ---
-    # The phone's own settings (kit/shim/phone_settings.m): the frame cap follows the thermal state and Low Power
+    # The phone's own settings (kit/shim/phone_extra.m): the frame cap follows the thermal state and Low Power
     # Mode, the memory the app may still use is read for the start screen, and the MetalFX interpolation is set from
     # the Settings app's row.
-    shim = tree / 'ios/Sources/phone_settings.m'
-    shim.write_bytes((Path(__file__).with_name('phone_settings.m')).read_bytes())
-    (tree / 'ios/Sources/phone_settings.h').write_bytes((Path(__file__).with_name('phone_settings.h')).read_bytes())
+    shim = tree / 'ios/Sources/phone_extra.m'
+    shim.write_bytes((Path(__file__).with_name('phone_extra.m')).read_bytes())
+    (tree / 'ios/Sources/phone_extra.h').write_bytes((Path(__file__).with_name('phone_extra.h')).read_bytes())
 
     # The app's own Metal HUD (frame rate, frame and GPU time, memory): Apple's HUD over the game, as Breath of the
     # Wild's front end has it (dm/ios/Sources/front_ios.m: developerHUDProperties).
@@ -139,7 +139,7 @@ def main(tree):
     replace_once(main_m,
                  '#import "touch_pad.h"\n',
                  '#import "touch_pad.h"\n'
-                 '#import "phone_settings.h"\n',
+                 '#import "phone_extra.h"\n',
                  '#3 the phone\'s settings')
     replace_once(main_m,
                  '    runtime_ios_attach_layer((CAMetalLayer *)self.gameView.layer, self.gameView);\n',
@@ -149,7 +149,7 @@ def main(tree):
                  '       (TOTK_METAL_HUD) turns it on. */\n'
                  '    if ([NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_METAL_HUD"])\n'
                  '        ((CAMetalLayer *)self.gameView.layer).developerHUDProperties = @{@"mode": @"default"};\n'
-                 '    /* TOTK-ipa: the phone\'s heat and its Low Power Mode now decide the frame cap (phone_settings.m). */\n'
+                 '    /* TOTK-ipa: the phone\'s heat and its Low Power Mode now decide the frame cap (phone_extra.m). */\n'
                  '    phone_settings_start();\n',
                  '#6 the Metal performance HUD')
 
@@ -158,7 +158,7 @@ def main(tree):
     replace_once(start,
                  '#import "start_screen.h"\n',
                  '#import "start_screen.h"\n'
-                 '#import "phone_settings.h"\n',
+                 '#import "phone_extra.h"\n',
                  '#6 the memory readout')
     replace_once(start,
                  '    note.font = [UIFont systemFontOfSize:13]; note.textColor = [UIColor colorWithWhite:0.6 alpha:1];\n',

@@ -1,6 +1,6 @@
 #import "touch_pad.h"
 #import "device_motion.h"
-#import "phone_settings.h"
+#import "phone_extra.h"
 #import <GameController/GameController.h>
 #import <CoreText/CoreText.h>
 #include <math.h>

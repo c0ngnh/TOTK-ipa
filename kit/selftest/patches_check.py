@@ -52,7 +52,7 @@ def main():
         assert read_at < romfs.index('src_pread(fd,(uint8_t *)buffer+done'), 'the mappings must come before pread'
 
         # #3 and #6: the phone's own settings are in the app.
-        settings = (tree / 'ios/Sources/phone_settings.m').read_text()
+        settings = (tree / 'ios/Sources/phone_extra.m').read_text()
         assert 'NSProcessInfoThermalStateDidChangeNotification' in settings, 'the thermal state is not watched'
         assert 'NSProcessInfoPowerStateDidChangeNotification' in settings, 'Low Power Mode is not watched'
         assert 'lowPowerModeEnabled' in settings, 'Low Power Mode is not read'
@@ -76,6 +76,18 @@ def main():
         # The runtime reads the mode from TOTK_MFX, so the pane's value reaches it as that variable.
         assert 'getenv("TOTK_MFX")' in (tree / 'third_party/d2r_gfx/gfx/nvn/totk_mfx.m').read_text(), \
             'the runtime does not read TOTK_MFX'
+
+        # The kit's own files must not shadow an upstream one: the app's sources are compiled together, and two
+        # headers of the same name in the same folder means one of them silently wins (the kit's phone_extra.h once
+        # replaced the game's own phone_settings.h, and the build failed on the missing totk_phone_setting_enabled).
+        for name in ('phone_extra.h', 'phone_extra.m'):
+            for folder in (tree / 'ios/Sources', tree / 'runtime'):
+                for other in folder.iterdir() if folder.is_dir() else []:
+                    assert other.name != name or folder == tree / 'ios/Sources', \
+                        f'{name} shadows the upstream {folder.name}/{other.name}'
+        upstream_settings = tree / 'ios/Sources/phone_settings.h'
+        assert upstream_settings.is_file(), 'the game\'s own phone_settings.h must still be there'
+        assert 'totk_phone_setting_enabled' in upstream_settings.read_text(), 'the game\'s own header changed'
 
         # The pane's rows are bilingual, so the game's own localisation can split them.
         for spec in root_plist['PreferenceSpecifiers']:

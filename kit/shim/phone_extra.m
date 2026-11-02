@@ -11,7 +11,7 @@
 //   - the memory the app may still use (os_proc_available_memory), shown on the start screen: the game asks for a
 //     3.2 GiB pool, so a player who watches the number fall knows the phone is under pressure.
 //
-// The file is the kit's own (kit/shim/phone_settings.m); build_shell.py puts it in the tree and adds it to the project.
+// The file is the kit's own (kit/shim/phone_extra.m); build_shell.py puts it in the tree and adds it to the project.
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #include <TargetConditionals.h>

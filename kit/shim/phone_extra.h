@@ -1,4 +1,4 @@
-// TOTK-ipa: the phone's own settings (kit/shim/phone_settings.m).
+// TOTK-ipa: the phone's own settings (kit/shim/phone_extra.m).
 #pragma once
 #include <stdint.h>
 
