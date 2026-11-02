@@ -19,9 +19,15 @@ COPY = 8 << 20          # the copy buffer
 
 
 def split_image(image, out, say=None):
-    """The image in parts of PART bytes, the last one shorter (runtime/romfs.c open_chunks reads them in place)."""
+    """The image in parts of PART bytes, the last one shorter (runtime/romfs.c open_chunks reads them in place).
+
+    The runtime reads at most 64 parts (MAX_CHUNKS), so the part size has to be large enough: a 17 GB image in 1 GiB
+    parts is 17 of them."""
     size = image.stat().st_size
     parts = (size + PART - 1) // PART
+    if parts > 64:
+        raise SystemExit(f'{image}: {size / 2**30:.0f} GiB would need {parts} parts of {PART / 2**30:.0f} GiB; the app '
+                         'reads at most 64')
     out.mkdir(parents=True, exist_ok=True)
     with image.open('rb') as src:
         for i in range(parts):
@@ -94,7 +100,7 @@ def pack_seed(seed, out, say=None):
     handle.close()
     fingerprint = digest.hexdigest()
     folder = f'shader-seed-{fingerprint[:12]}'
-    for part_file in sorted(out.glob('.pack.*')):
+    for part_file in sorted(out.glob('.pack.*'), key=lambda p: int(p.name.rsplit('.', 1)[1])):
         part_file.rename(out / f'{folder}{part_file.name}')
     (out / 'shader-seed.txt').write_text(f'{folder}\n{fingerprint}\n')
     if say:

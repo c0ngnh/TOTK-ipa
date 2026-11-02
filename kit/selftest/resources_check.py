@@ -15,9 +15,10 @@ import game_resources
 
 
 def read_parts(folder):
-    """The image the runtime reads: the parts in order, as one stream."""
+    """The image the runtime reads: the parts in order, as one stream. The runtime names them by index
+    (romfs.bin.%03u, runtime/romfs.c open_chunks), so they are read in numeric order, not by name."""
     out = b''
-    for part in sorted(folder.glob('romfs.bin.*')):
+    for part in sorted(folder.glob('romfs.bin.*'), key=lambda p: int(p.name.rsplit('.', 1)[1])):
         out += part.read_bytes()
     return out
 
@@ -26,7 +27,7 @@ def unpack_seed(folder):
     """The stream the app unpacks (ios/Sources/main.m seed_unpack): "TOTKPACK1", then per file a u16 name length, the
     name, a u64 size and the bytes, a zero name length last."""
     data = b''
-    for part in sorted(folder.glob('shader-seed-*.pack.*')):
+    for part in sorted(folder.glob('shader-seed-*.pack.*'), key=lambda p: int(p.name.rsplit('.', 1)[1])):
         data += part.read_bytes()
     assert data[:9] == b'TOTKPACK1', 'the pack has no magic'
     at, files = 9, {}
@@ -44,7 +45,8 @@ def unpack_seed(folder):
     return files
 
 
-def main():
+def check_parts():
+    """The resources, written and read back: the image in parts and the shaders as a pack."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         image = root / 'romfs.bin'
@@ -76,7 +78,24 @@ def main():
         again = root / 'again'
         game_resources.write_all(image, seed, again)
         assert (again / 'shader-seed.txt').read_text() == (out / 'shader-seed.txt').read_text()
+        # More than one part: all but the last have the same size (runtime/romfs.c open_chunks). The runtime reads at
+        # most 64 parts (MAX_CHUNKS), so the parts are 1 GiB for a 17 GB image.
+        many = root / 'many'
+        old, game_resources.PART = game_resources.PART, 100000
+        try:
+            parts = game_resources.split_image(image, many)
+        finally:
+            game_resources.PART = old
+        assert parts > 1, parts
+        sizes = [p.stat().st_size for p in sorted(many.glob('romfs.bin.*'), key=lambda p: int(p.name.rsplit('.', 1)[1]))]
+        assert sizes[:-1] == [sizes[0]] * (len(sizes) - 1), sizes
+        assert sum(sizes) == len(body)
+        assert read_parts(many) == body, 'the parts do not rejoin'
         print(f'resources checked: {parts} image part(s), {len(files)} shader file(s) in the pack')
+
+
+def main():
+    check_parts()
 
 
 if __name__ == '__main__':

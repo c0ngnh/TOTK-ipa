@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """The import tool's last part on synthetic game files: the Python environment as MacNativeGames' scripts expect it
 (prepare_venv, with junctions on Windows), the module parts into the real app shell (build_payload), GameData and the
-IPA (write_ipa). Checks the IPA's entries, the executable's mode and that every section holds what was embedded.
+IPA (write_ipa). Checks the IPA's entries, the executable's mode and that every section holds what was embedded. Also
+the split: the game image and the shaders out of the app, in the layout the phone reads them in (write_resources).
     usage: assemble_check.py <MacNativeGames checkout> <TOTK.app shell>"""
 import hashlib, json, os, shutil, struct, sys, tempfile, zipfile
 from pathlib import Path
 KIT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KIT))
 sys.path.insert(0, str(KIT / 'selftest'))
-import totk_import as T, check_export as C, macho
+import totk_import as T, check_export as C, macho, resources_check
 
 
 def synthetic_tree(mng, root):
@@ -89,7 +90,7 @@ def main():
             exe = z.read('Payload/TOTK.app/TOTK')
         m = macho.MachO(exe)
         sizes = {s.name: s.size for seg in m.segments for s in seg.sections}
-        assert sizes[('__TOTKX', '__mainx0')] == 0x2604000, hex(sizes[('__TOTKX', '__mainx0'))
+        assert sizes[('__TOTKX', '__mainx0')] == 0x2604000, hex(sizes[('__TOTKX', '__mainx0')])
 
         # The split: the image and the shaders stay out of the app, and the resources go beside it.
         T.build_payload(tree, shell, root / 'payload-split', logs, image_outside=True)
@@ -111,6 +112,7 @@ def main():
         assert (resources / f'{mark[0]}.pack.000').is_file(), 'the shader pack is missing'
         print(f'IPA assembled: {len(names)} entries, {out.stat().st_size / 2**20:.0f} MiB; executable sections filled')
         print(f'split IPA: {out2.stat().st_size / 2**20:.0f} MiB, the resources beside it: {parts} image part(s)')
+        resources_check.check_parts()   # the parts and the pack are read back the way the phone reads them
 
 
 if __name__ == '__main__':
