@@ -465,6 +465,59 @@ def main(tree):
                  'int totk_device_motion_source(void) { return runtime_motion_source_get(); }\n',
                  '#9 the app\'s motion source API off iOS')
 
+    # --- #10: the Bluetooth controller's face buttons swapped, so the game sees the Nintendo arrangement ---
+    # A controller that is not a Nintendo one is read by position: GameController names its face buttons by the Xbox
+    # layout (A bottom, B right, X left, Y top), and the game's prompts then show the Switch's letters at the places the
+    # player does not expect them. The player asked for the swap (2026-11-03): A and B take each other's place, and X and
+    # Y take each other's, so the game sees the Switch's own arrangement (A right, B bottom, X top, Y left).
+    # The swap is done on the positions, so the game gets the same bit for the same place whatever the controller calls
+    # the button that was pressed. The player's choice comes from the Settings pane's row (TOTK_FACE_SWAP), which the app
+    # hands over as that environment variable; without the variable nothing is swapped, as before.
+    layout_h = tree / 'runtime/gamepad_layout.h'
+    replace_once(layout_h,
+                 'static inline uint64_t gamepad_face_positions(int a, int b, int x, int y, int by_position) {\n'
+                 '    enum { SOUTH = 1, EAST = 2, WEST = 4, NORTH = 8 };\n'
+                 '    if (by_position) return (a ? SOUTH : 0) | (b ? EAST : 0) | (x ? WEST : 0) | (y ? NORTH : 0);\n'
+                 '    return (a ? EAST : 0) | (b ? SOUTH : 0) | (x ? NORTH : 0) | (y ? WEST : 0);\n'
+                 '}\n',
+                 'static inline uint64_t gamepad_face_positions(int a, int b, int x, int y, int by_position) {\n'
+                 '    enum { SOUTH = 1, EAST = 2, WEST = 4, NORTH = 8 };\n'
+                 '    if (by_position) return (a ? SOUTH : 0) | (b ? EAST : 0) | (x ? WEST : 0) | (y ? NORTH : 0);\n'
+                 '    return (a ? EAST : 0) | (b ? SOUTH : 0) | (x ? NORTH : 0) | (y ? WEST : 0);\n'
+                 '}\n'
+                 '\n'
+                 '/* TOTK-ipa: the face buttons swapped, so the game sees the Nintendo arrangement (A right, B bottom, X top,\n'
+                 '   Y left) whatever the controller\'s own labels are (the user\'s request, 2026-11-03). A Bluetooth\n'
+                 '   controller that is not a Nintendo one is read by position (GameController names its buttons by the Xbox\n'
+                 '   layout), and the game\'s prompts then show the Switch\'s letters at the places the player does not\n'
+                 '   expect them.\n'
+                 '   The swap exchanges the two pairs: A and B take each other\'s place, and X and Y take each other\'s. It is\n'
+                 '   done on the positions, not on the letters, so the game gets the same bit for the same place whatever\n'
+                 '   the controller calls the button that was pressed: the controller\'s own A drives the game\'s A.\n'
+                 '   Only a controller read by position is swapped. A Nintendo controller is read by label and is already\n'
+                 '   right (its A is on the right, where the game shows A), so swapping it would break it; the same goes\n'
+                 '   for TOTK_FACE_BUTTONS=label, which asks for the labels as they are.\n'
+                 '   TOTK_FACE_SWAP=1 turns it on; the Settings pane\'s own row hands the choice over as that variable.\n'
+                 '   Without the variable nothing is swapped, which is what the game had before. */\n'
+                 'static inline int gamepad_face_swap(void) {\n'
+                 '    const char *e = getenv("TOTK_FACE_SWAP");\n'
+                 '    return e && *e && strcmp(e, "0") != 0;\n'
+                 '}\n'
+                 '\n'
+                 '/* The physical positions, with the pairs exchanged when the player asked for it. */\n'
+                 'static inline uint64_t gamepad_face_positions_swapped(int a, int b, int x, int y, int by_position) {\n'
+                 '    if (!by_position || !gamepad_face_swap()) return gamepad_face_positions(a, b, x, y, by_position);\n'
+                 '    return gamepad_face_positions(b, a, y, x, by_position);\n'
+                 '}\n',
+                 '#10 the face buttons swapped')
+    # The controller's own face buttons go through the swap.
+    replace_once(tree / 'runtime/gamepad.m',
+                 '    uint64_t buttons = gamepad_face_positions(pad.buttonA.isPressed, pad.buttonB.isPressed, pad.buttonX.isPressed, pad.buttonY.isPressed, by_position);\n',
+                 '    /* TOTK-ipa: the face buttons go through the swap (the user\'s request, 2026-11-03), so the game sees the\n'
+                 '       Nintendo arrangement whatever the controller\'s labels are. */\n'
+                 '    uint64_t buttons = gamepad_face_positions_swapped(pad.buttonA.isPressed, pad.buttonB.isPressed, pad.buttonX.isPressed, pad.buttonY.isPressed, by_position);\n',
+                 '#10 the controller\'s face buttons go through the swap')
+
     # The patches are edits of the upstream tree, so they must still hold what they say (kit/shim/patch_check.py).
     # The check is here and not in the workflow, so that the kit's own source carries it: the workflow file can only
     # be changed by a token with the workflow scope, and that scope is not something a player's token is given.

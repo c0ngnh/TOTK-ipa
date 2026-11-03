@@ -135,8 +135,19 @@ def check(tree):
     assert 'totk_device_motion_set_source(next)' in pad, 'the button does not reach the app'
     assert 'TOTK_MOTION_SOURCE' in pad, 'the choice is not kept between launches'
 
+    # #10: the face buttons swapped, so the game sees the Nintendo arrangement (the user's request, 2026-11-03).
+    layout_h = (tree / 'runtime/gamepad_layout.h').read_text()
+    assert 'gamepad_face_swap' in layout_h, 'the face buttons cannot be swapped'
+    assert 'TOTK_FACE_SWAP' in layout_h, 'the swap has no switch of its own'
+    swap = layout_h.split('static inline uint64_t gamepad_face_positions_swapped', 1)[1].split('}', 1)[0]
+    # The swap exchanges the two pairs: A with B, and X with Y.
+    assert 'gamepad_face_positions(b, a, y, x' in swap, 'the swap does not exchange A with B and X with Y'
+    gamepad = (tree / 'runtime/gamepad.m').read_text()
+    assert 'gamepad_face_positions_swapped(pad.buttonA' in gamepad, 'the controller\'s buttons do not go through the swap'
+
     print('patches checked: uncapped clock, controller gestures, split image in memory, thermal state, memory readout, '
-          'Metal HUD, the frame interpolation row, the shared fonts and the motion source', flush=True)
+          'Metal HUD, the frame interpolation row, the shared fonts, the motion source and the face buttons\' swap',
+          flush=True)
 
 
 if __name__ == '__main__':

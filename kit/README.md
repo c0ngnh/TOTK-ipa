@@ -90,6 +90,9 @@ The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad
   game, so the two never mix.
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A
   Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
+- **Swap the controller's A, B and X, Y** (Settings › 手柄 · Controller) makes a Bluetooth controller that is not a
+  Nintendo one read as a Nintendo one: its A drives the game's A, its B the game's B, and so on, so the game's prompts
+  sit where a Nintendo controller's buttons are. A Nintendo controller is left alone: it is already right.
 - The **frame-rate button** (the number at the top centre) switches between 60 and 30 as it is held.
 
 ## Keeping the game resources out of the IPA
@@ -150,6 +153,7 @@ The kit is built by the **Build TOTK-ipa kit** workflow (Actions → Run workflo
   - the on-screen controller's layout has no overlap on seven screen sizes;
   - the motion source's gate keeps the phone's sensor and the controller's sensor apart: a source that is not in
     force never reaches the game;
+  - the controller's face buttons can be swapped, and a Nintendo controller is left alone when they are;
   - on Windows, the environment, embedding and IPA writing work on synthetic files, and the builder window's pages and
     checks behave.
 

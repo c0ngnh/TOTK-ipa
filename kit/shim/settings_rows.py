@@ -35,6 +35,12 @@ HUD_FOOTER = (
     "Apple's Metal performance HUD over the game: frame rate, frame and GPU time, and memory. Useful when chasing a "
     'performance problem; off the rest of the time. Takes effect after relaunching'
 )
+FACE_SWAP_FOOTER = (
+    '打开后，蓝牙手柄的 A、B 和 X、Y 互换，游戏里的按键提示就和任天堂手柄一样（A 在右、B 在下、X 在上、Y 在左）。'
+    '手柄本身没有改，只是游戏怎么看它。重启游戏后生效 · With this on, a Bluetooth controller\'s A, B and X, Y are '
+    'exchanged, so the game\'s button prompts sit where a Nintendo controller\'s are (A right, B bottom, X top, Y left). '
+    'The controller itself is not changed, only how the game reads it. Takes effect after relaunching'
+)
 
 
 def add_rows(root):
@@ -67,6 +73,16 @@ def add_rows(root):
         'DefaultValue': False,
         'FooterText': HUD_FOOTER,
     }
+    # The face buttons' swap goes with the controller: it is about how a controller's buttons are read.
+    face_swap_row = {
+        'Type': 'PSToggleSwitchSpecifier',
+        'Key': 'TOTK_FACE_SWAP',
+        'TOTKApp': 'totk',
+        'TOTKPhone': True,
+        'Title': '手柄按键互换（A/B、X/Y）· Swap the controller\'s A, B and X, Y',
+        'DefaultValue': False,
+        'FooterText': FACE_SWAP_FOOTER,
+    }
 
     # The place of the MetalFX group: after the last of its own rows (the edge smoothing switch).
     insert_at = len(specs)
@@ -81,6 +97,13 @@ def add_rows(root):
         if spec.get('Key') == 'TOTK_FPS_OVERLAY':
             insert_at = i + 1
     specs[insert_at:insert_at] = [hud_row]
+
+    # The face buttons' swap: after the controller's own rows (the rumble and the gyro switches).
+    insert_at = len(specs)
+    for i, spec in enumerate(specs):
+        if spec.get('Key') == 'TOTK_GYRO':
+            insert_at = i + 1
+    specs[insert_at:insert_at] = [face_swap_row]
     return root
 
 
@@ -90,7 +113,8 @@ def main(bundle):
     root = plistlib.loads(path.read_bytes())
     root = add_rows(root)
     path.write_bytes(plistlib.dumps(root, sort_keys=False))
-    print(f'  the Settings pane has the frame interpolation and the Metal HUD rows: {path}', flush=True)
+    print(f'  the Settings pane has the frame interpolation, the Metal HUD and the face buttons\' swap rows: {path}',
+          flush=True)
 
 
 if __name__ == '__main__':

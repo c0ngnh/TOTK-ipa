@@ -53,6 +53,8 @@ jobs:
         run: python3 kit/selftest/pad_layout.py
       - name: The motion source's gate keeps the two sensors apart
         run: python3 kit/selftest/motion_source_check.py mng
+      - name: The controller's face buttons can be swapped
+        run: python3 kit/selftest/face_swap_check.py mng
       - name: Mach-O fill and re-sign on an lld-linked placeholder executable
         run: |
           sudo apt-get install -y -q lld >/dev/null
