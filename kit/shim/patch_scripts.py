@@ -14,7 +14,7 @@ from pathlib import Path
 def replace_once(path, old, new, note):
     text = path.read_text(encoding='utf-8')
     if text.count(old) == 1:
-        path.write_text(text.replace(old, new))
+        path.write_text(text.replace(old, new), encoding='utf-8')
         print(f'  patched {path.name}: {note}', flush=True)
         return
     if text.count(new) == 1:

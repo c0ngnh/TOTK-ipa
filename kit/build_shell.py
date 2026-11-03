@@ -34,7 +34,7 @@ def replace_once(path, old, new):
     text = path.read_text(encoding='utf-8')
     if text.count(old) != 1:
         raise SystemExit(f'{path.name}: expected exactly one "{old.strip()}" (MacNativeGames changed; update kit/build_shell.py)')
-    path.write_text(text.replace(old, new))
+    path.write_text(text.replace(old, new), encoding='utf-8')
 
 
 def main():

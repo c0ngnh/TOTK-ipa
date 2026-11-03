@@ -24,7 +24,7 @@ def replace_once(path, old, new, note):
     if text.count(old) != 1:
         raise SystemExit(f'{path.name}: {note}: expected exactly one "{old.strip()[:60]}" '
                          f'(MacNativeGames changed; update kit/shim/apply_patches.py)')
-    path.write_text(text.replace(old, new))
+    path.write_text(text.replace(old, new), encoding='utf-8')
     print(f'  patched {path.name}: {note}', flush=True)
 
 
