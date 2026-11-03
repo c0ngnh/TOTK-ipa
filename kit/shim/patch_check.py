@@ -97,6 +97,13 @@ def check(tree):
     # The rows the kit adds must not disturb the pane's own order.
     assert keys.index('TOTK_MFX') > keys.index('TOTK_TAA'), 'the interpolation row must follow the MetalFX group'
     assert keys.index('TOTK_METAL_HUD') > keys.index('TOTK_FPS_OVERLAY'), 'the HUD row belongs to the interface group'
+    assert keys.index('TOTK_FACE_SWAP') > keys.index('TOTK_GYRO'), 'the swap row belongs to the controller group'
+    # The kit's own rows carry no TOTKApp mark: that mark is the upstream's list of what Breath of the Wild must not
+    # show (build_ipa.py settings_without_totk drops every row marked TOTKApp=totk), so a marked kit row would be
+    # stripped from the pane again and the player could never reach it.
+    for key in ('TOTK_MFX', 'TOTK_METAL_HUD', 'TOTK_FACE_SWAP'):
+        kit_row = next(s for s in root_plist['PreferenceSpecifiers'] if s.get('Key') == key)
+        assert kit_row.get('TOTKApp') is None, f'{key} is marked TOTKApp, so the pane filter would drop it'
 
     # #9: the player picks which sensor feeds the game's single six-axis device (the user's request, 2026-11-03).
     runtime_h = (tree / 'runtime/runtime.h').read_text()

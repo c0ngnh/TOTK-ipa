@@ -46,6 +46,9 @@ FACE_SWAP_FOOTER = (
 def add_rows(root):
     specs = root['PreferenceSpecifiers']
 
+    # The kit's own rows carry no TOTKApp mark. That mark is the upstream's list of what Breath of the Wild must not
+    # show (build_ipa.py settings_without_totk drops every row marked TOTKApp=totk), so a marked kit row would be
+    # stripped from the pane again and the player could never reach it. The kit's rows belong to both games.
     # The MetalFX group (scene upscaling and edge smoothing) keeps its own title; the frame interpolation gets a group
     # of its own, right after it.
     mfx_group = {
@@ -55,7 +58,6 @@ def add_rows(root):
     mfx_row = {
         'Type': 'PSRadioGroupSpecifier',
         'Key': 'TOTK_MFX',
-        'TOTKApp': 'totk',
         'TOTKPhone': True,
         'Title': '補幀 · Frame interpolation',
         'DefaultValue': '0',
@@ -67,7 +69,6 @@ def add_rows(root):
     hud_row = {
         'Type': 'PSToggleSwitchSpecifier',
         'Key': 'TOTK_METAL_HUD',
-        'TOTKApp': 'totk',
         'TOTKPhone': True,
         'Title': 'Metal 性能監視器 · Metal performance HUD',
         'DefaultValue': False,
@@ -77,7 +78,6 @@ def add_rows(root):
     face_swap_row = {
         'Type': 'PSToggleSwitchSpecifier',
         'Key': 'TOTK_FACE_SWAP',
-        'TOTKApp': 'totk',
         'TOTKPhone': True,
         'Title': '手柄按键互换（A/B、X/Y）· Swap the controller\'s A, B and X, Y',
         'DefaultValue': False,
