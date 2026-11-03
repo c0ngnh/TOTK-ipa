@@ -44,6 +44,7 @@ static const CGFloat
     K_FPS_R = 15,                                   // the frame-rate button: top centre, level with − / +
     K_PAD_TOGGLE_GAP = 30, K_PAD_TOGGLE_R = 13,       // the pad's own button: the gap past the + pill, radius
     K_MOTION_GAP = 30, K_MOTION_W = 68, K_MOTION_R = 13,   // the motion source's button: the gap past the pad's own button, its width and radius
+    K_SWAP_GAP = 26, K_SWAP_R = 13,                        // the face buttons' swap: the gap past the motion source's button, its radius
     K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,  // the left stick: mirrors the diamond, the ring as large as the whole diamond
     K_STICK_GRAB = 1.4,                             // how near the ring's centre a touch-down grabs a stick
     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius
@@ -72,6 +73,8 @@ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
     CAShapeLayer *_fps; CATextLayer *_fpsLabel; BOOL _fpsHeld;
     CAShapeLayer *_toggle; CATextLayer *_toggleLabel; BOOL _toggleHeld;
     CAShapeLayer *_motion; CATextLayer *_motionLabel; BOOL _motionHeld;
+    CAShapeLayer *_swap; CATextLayer *_swapLabel; BOOL _swapHeld;
+    BOOL _faceSwap;                                      // the Bluetooth controller's A/B and X/Y swapped
     int _motionSource;                               // the source in force: TOTK_MOTION_SOURCE_AUTO / _PHONE / _CONTROLLER
     UIImpactFeedbackGenerator *_touchFeedback;        // one short feedback per press edge
     unsigned _hapticSticks;
@@ -79,7 +82,7 @@ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
     uint64_t _faceBits, _btnBits;
 }
 
-enum { C_NONE = 0, C_STICK, C_DPAD, C_BTN, C_FACE, C_FPS, C_TOGGLE, C_MOTION };
+enum { C_NONE = 0, C_STICK, C_DPAD, C_BTN, C_FACE, C_FPS, C_TOGGLE, C_MOTION, C_SWAP };
 
 static CAShapeLayer *shape(CALayer *parent) {
     CAShapeLayer *l = [CAShapeLayer layer];
@@ -128,13 +131,20 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
             _key[b] = shape(controls);
             if (names[b]) _label[b] = label(_key[b], names[b]);   // the D-pad arms carry no label
         }
-        _fps = shape(controls); _fpsLabel = label(_fps, @"60");
+        _fps = shape(controls); _fpsLabel = label(_fps, [self frameRateLabel:runtime_phone_fps()]);
         _toggle = shape(self.layer); _toggleLabel = label(_toggle, padHidden ? @"⊘" : @"⊙");
         /* The motion source's button: on the view's own layer, so it stays on screen even when the overlay is hidden
            (a player with a Bluetooth controller may still want to aim with the phone, or with the controller). */
         _motion = shape(self.layer);
         _motionSource = totk_device_motion_source();
         _motionLabel = label(_motion, [self motionLabelFor:_motionSource]);
+        /* The face buttons' swap: on the view's own layer, next to the motion source's button, so it stays on screen even
+           when the overlay is hidden (a player with a Bluetooth controller may still want to turn the swap on or off).
+           The choice is the runtime's, so the button shows what the runtime says (the Settings pane's row is the choice
+           at the launch; the button then changes it while the game runs). */
+        _swap = shape(self.layer);
+        _faceSwap = runtime_gamepad_face_swap() != 0;
+        _swapLabel = label(_swap, [self swapLabel]);
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserver:self selector:@selector(controllersChanged:) name:GCControllerDidConnectNotification object:nil];
         [center addObserver:self selector:@selector(controllersChanged:) name:GCControllerDidDisconnectNotification object:nil];
@@ -234,6 +244,20 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
     [self refresh];
 }
 
+/* The face buttons' swap button: it shows whether the swap is on, and a tap turns it on or off. The runtime holds the
+   choice (runtime_gamepad_face_swap_set), so the change reaches the game at once, without a restart. */
+- (NSString *)swapLabel { return _faceSwap ? TOTK_UI(@"已换", @"On") : TOTK_UI(@"原样", @"Off"); }
+- (void)switchFaceSwap {
+    _faceSwap = !_faceSwap;
+    /* The runtime takes the choice at once: the controller's buttons are read through it on the next frame. */
+    runtime_gamepad_face_swap_set(_faceSwap);
+    /* The choice is kept between launches, like the pad's own button's and the motion source's. The Settings pane's row
+       (TOTK_FACE_SWAP) is the choice at the launch; the button's own choice is the one that counts from now on. */
+    [NSUserDefaults.standardUserDefaults setBool:_faceSwap forKey:@"TOTK_FACE_SWAP"];
+    _swapLabel.string = [self swapLabel];
+    [self refresh];
+}
+
 /* ---- Layout ---- */
 - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
 - (CGRect)corner {
@@ -299,6 +323,12 @@ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
     CGPoint t = self.toggleCenter; CGFloat u = self.u;
     return CGPointMake(t.x + (K_PAD_TOGGLE_R + K_MOTION_GAP + K_MOTION_R) * u, t.y);
 }
+/* The face buttons' swap button: out past the motion source's button, so it neither covers it nor steals its touches.
+   Its centre is measured from the motion source's button's centre, so the two stay apart whatever the screen's size. */
+- (CGPoint)swapCenter {
+    CGPoint m = self.motionCenter; CGFloat u = self.u;
+    return CGPointMake(m.x + (K_MOTION_R + K_SWAP_GAP + K_SWAP_R) * u, m.y);
+}
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 
@@ -329,6 +359,13 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
     if (dist(p, self.toggleCenter) <= (K_PAD_TOGGLE_R * 1.6 + K_MOTION_R * 1.6) * self.u) return NO;
     return dist(p, self.motionCenter) <= K_MOTION_R * self.u * 1.6 && ![self overPill:p];
 }
+/* The face buttons' swap button's touch area: out past the motion source's button, and clear of it (the two circles must
+   not overlap, or a tap near the boundary would pick the wrong one). */
+- (BOOL)inSwap:(CGPoint)p {
+    if (dist(p, self.motionCenter) <= (K_MOTION_R * 1.6 + K_SWAP_R * 1.6) * self.u) return NO;
+    if (dist(p, self.toggleCenter) <= (K_PAD_TOGGLE_R * 1.6 + K_SWAP_R * 1.6) * self.u) return NO;
+    return dist(p, self.swapCenter) <= K_SWAP_R * self.u * 1.6 && ![self overPill:p];
+}
 - (uint64_t)faceAt:(CGPoint)p {
     uint64_t m = 0; CGFloat r = self.faceR * 1.25;
     for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
@@ -347,7 +384,7 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
 
 /* ---- State ---- */
 - (void)recompute {
-    uint64_t face = 0, btn = 0; BOOL fps = NO, toggle = NO, motion = NO;
+    uint64_t face = 0, btn = 0; BOOL fps = NO, toggle = NO, motion = NO, swap = NO;
     for (UITouch *t in owner.keyEnumerator) {
         uint64_t v = [owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff);
         if (c == C_FACE) {
@@ -363,6 +400,8 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
             toggle = YES;
         } else if (c == C_MOTION) {
             motion = YES;
+        } else if (c == C_SWAP) {
+            swap = YES;
         }
     }
     int32_t ax[4] = {0, 0, 0, 0};
@@ -373,14 +412,15 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         CGFloat m = fmin((d - dz) / (R * K_FULL - dz), 1) / d;
         ax[i * 2] = (int32_t)lrint(o.x * m * 32767); ax[i * 2 + 1] = (int32_t)lrint(-o.y * m * 32767);
     }
-    BOOL changed = face != _faceBits || btn != _btnBits || fps != _fpsHeld || toggle != _toggleHeld || motion != _motionHeld;
+    BOOL changed = face != _faceBits || btn != _btnBits || fps != _fpsHeld || toggle != _toggleHeld ||
+                   motion != _motionHeld || swap != _swapHeld;
     uint64_t pressed = (face | btn) & ~(_faceBits | _btnBits);
     unsigned gripping = (_stick[0] ? 1u : 0) | (_stick[1] ? 2u : 0);
-    if (pressed || (fps && !_fpsHeld) || (motion && !_motionHeld) || (gripping & ~_hapticSticks)) {
+    if (pressed || (fps && !_fpsHeld) || (motion && !_motionHeld) || (swap && !_swapHeld) || (gripping & ~_hapticSticks)) {
         [_touchFeedback impactOccurredWithIntensity:0.6]; [_touchFeedback prepare];
     }
     _hapticSticks = gripping;
-    _faceBits = face; _btnBits = btn; _fpsHeld = fps; _toggleHeld = toggle; _motionHeld = motion;
+    _faceBits = face; _btnBits = btn; _fpsHeld = fps; _toggleHeld = toggle; _motionHeld = motion; _swapHeld = swap;
     RuntimeGamepadState s = {.connected = 1, .buttons = face | btn, .lx = ax[0], .ly = ax[1], .rx = ax[2], .ry = ax[3]};
     runtime_touch_pad_set(&s);
     BOOL stick = _stick[0] || _stick[1];
@@ -402,6 +442,11 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         if ([self inMotion:p]) {
             [owner setObject:@(C_MOTION) forKey:t];
             [self switchMotionSource];   /* picks the next motion source, like the upstream button */
+            continue;
+        }
+        if ([self inSwap:p]) {
+            [owner setObject:@(C_SWAP) forKey:t];
+            [self switchFaceSwap];   /* turns the controller's face buttons' swap on or off */
             continue;
         }
         if ([self inFps:p]) {
@@ -536,6 +581,8 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     CGRect mr = CGRectMake(mc.x - K_MOTION_W * u / 2, mc.y - K_MOTION_R * u, K_MOTION_W * u, K_MOTION_R * u * 2);
     setPath(_motion, CGPathCreateWithRoundedRect(mr, mr.size.height / 2, mr.size.height / 2, NULL));
     placeLabel(_motionLabel, mc, 11 * u);
+    /* The face buttons' swap button: a small circle, like the pad's own button. */
+    CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, K_SWAP_R * u)); placeLabel(_swapLabel, sc, 11 * u);
     /* Both sticks' rings: the left one at its home, the right one at its home too (it follows the finger only while a
        swipe holds it away from there). */
     for (int i = 0; i < 2; i++) {
@@ -565,6 +612,10 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     _toggle.fillColor = (_toggleHeld ? k_on : k_idle).CGColor;
     _motion.fillColor = (_motionHeld ? k_on : k_idle).CGColor;
     _motionLabel.foregroundColor = (_motionHeld ? k_textOn : k_text).CGColor;
+    /* The swap button's fill shows the choice (on or off), like its text does; the press itself is felt through the
+       haptic feedback, as the other buttons' presses are. */
+    _swap.fillColor = (_faceSwap ? k_on : k_idle).CGColor;
+    _swapLabel.foregroundColor = (_faceSwap ? k_textOn : k_text).CGColor;
     for (int i = 0; i < 2; i++) {
         CGPoint h = [self stickCentre:i];
         CGPoint o = [self stickOffset:i];
@@ -578,18 +629,24 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     [CATransaction commit];
 }
 
-/* The frame rate button: it switches the game between 60 and 30 as it is held. */
+/* The frame rate button: it cycles the game through 30, 60 and uncapped as it is held (the user's request,
+   2026-11-03). The runtime's rates are 30 (held), 60 (the display's rate) and 0 (uncapped). */
 - (void)switchFrameRate {
     BOOL custom = [NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_CUSTOM_PICTURE"];
-    int fps = totk_frame_button_target(runtime_phone_fps() == 30);
+    int fps = totk_frame_button_target(runtime_phone_fps());
     /* TOTK-ipa: through phone_settings.m, so the phone's heat and its Low Power Mode still have the last word (the
        button's choice is the player's; a hot phone holds 30 until it cools). */
     phone_frame_cap_set(fps);
     const char *key = totk_frame_button_key(custom);
-    if (key) [NSUserDefaults.standardUserDefaults setObject:fps == 30 ? @"30" : @"60" forKey:@(key)];
-    _fpsLabel.string = fps == 30 ? @"30" : @"60";
+    if (key) [NSUserDefaults.standardUserDefaults setObject:[self frameRateName:fps] forKey:@(key)];
+    _fpsLabel.string = [self frameRateLabel:fps];
     [self refresh];
 }
+
+/* The rate's name in the pane's row: the same words the Settings pane offers, so the two mean the same thing. */
+- (NSString *)frameRateName:(int)fps { return fps == 30 ? @"30" : fps == 0 ? @"uncapped" : @"60"; }
+/* What the button shows: the rate, and the uncapped one as the sign for "no limit" (the button is small). */
+- (NSString *)frameRateLabel:(int)fps { return fps == 30 ? @"30" : fps == 0 ? @"∞" : @"60"; }
 
 - (void)drawRect:(CGRect)rect { (void)rect; }   /* the controls are layers, not drawing */
 @end

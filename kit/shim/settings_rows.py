@@ -35,6 +35,34 @@ HUD_FOOTER = (
     "Apple's Metal performance HUD over the game: frame rate, frame and GPU time, and memory. Useful when chasing a "
     'performance problem; off the rest of the time. Takes effect after relaunching'
 )
+# TOTK-ipa (2026-11-03): the frame rate has three settings, not two. The uncapped one is the game's own clock above the
+# display's rate: the picture stays at the display's refresh rate (the display link shows the newest finished frame at
+# every refresh) while the game itself runs faster, which makes the input and the simulation steadier.
+FPS_PRESET_VALUES = ['60', '30', 'uncapped']
+FPS_PRESET_TITLES = [
+    '最高 60 · Up to 60',
+    '鎖 30 · Held at 30',
+    '不限帧（游戏跑得比屏幕快）· Uncapped (the game runs faster than the screen)',
+]
+FPS_CAP_VALUES = ['30', '60', 'uncapped']
+FPS_CAP_TITLES = [
+    '30 帧（省电，最稳）· 30 fps (coolest, steadiest)',
+    '60 帧（推荐）· 60 fps',
+    '不限帧（游戏跑得比屏幕快）· Uncapped (the game runs faster than the screen)',
+]
+FPS_PRESET_FOOTER = (
+    '60 是屏幕的刷新率，30 是省电模式，锁定 30 帧。不限帧让游戏按自己的时钟跑（比屏幕快），屏幕每次刷新显示最新的一帧，'
+    '游戏速度不变，但按键响应更及时。重启游戏后生效 · 60 is the screen\'s refresh rate, 30 is the power-saving mode, held '
+    'at 30 fps. Uncapped lets the game run on its own clock (faster than the screen); the screen shows the newest frame at '
+    'every refresh, the game keeps its speed, and the input is answered sooner. Takes effect after relaunching'
+)
+FPS_CAP_FOOTER = (
+    '30 最省电也最稳，长时间不变；60 推荐，发热后可能临时降到 30，冷却后自行回到 60。不限帧让游戏按自己的时钟跑，'
+    '发热和耗电都明显更高，不建议长时间使用。重启游戏后生效 · 30 is the coolest and holds steady over time; 60 is '
+    'recommended — after the SoC heats up the game may drop to 30 for a while and return to 60 once it cools. Uncapped '
+    'lets the game run on its own clock: it heats up and uses more battery, so it is not meant for long sessions. Takes '
+    'effect after relaunching'
+)
 FACE_SWAP_FOOTER = (
     '打开后，蓝牙手柄的 A、B 和 X、Y 互换，游戏里的按键提示就和任天堂手柄一样（A 在右、B 在下、X 在上、Y 在左）。'
     '手柄本身没有改，只是游戏怎么看它。重启游戏后生效 · With this on, a Bluetooth controller\'s A, B and X, Y are '
@@ -104,6 +132,21 @@ def add_rows(root):
         if spec.get('Key') == 'TOTK_GYRO':
             insert_at = i + 1
     specs[insert_at:insert_at] = [face_swap_row]
+
+    # TOTK-ipa (2026-11-03): the frame-rate rows get the third setting, the uncapped one. The rows the game ships with
+    # offer 30 and 60; the button on the pad has three settings (30, 60, uncapped), and a player who used the button
+    # would find the pane offering only two, so the pane and the button would disagree. The rows are changed in place,
+    # so the game's own order and keys stay.
+    for spec in specs:
+        key = spec.get('Key')
+        if key == 'TOTK_PHONE_FPS':
+            spec['Values'] = list(FPS_PRESET_VALUES)
+            spec['Titles'] = list(FPS_PRESET_TITLES)
+            spec['FooterText'] = FPS_PRESET_FOOTER
+        elif key == 'TOTK_FPS_CAP':
+            spec['Values'] = list(FPS_CAP_VALUES)
+            spec['Titles'] = list(FPS_CAP_TITLES)
+            spec['FooterText'] = FPS_CAP_FOOTER
     return root
 
 

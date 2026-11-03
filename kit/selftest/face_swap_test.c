@@ -81,6 +81,28 @@ int main(void) {
     check(!gamepad_face_swap(), "the swap is off with 0");
     setenv("TOTK_FACE_SWAP", "1", 1);
 
+    /* The on-screen pad's button changes the swap while the game runs (the user's request, 2026-11-03). The button
+       reaches the runtime through gamepad_face_swap_set, so the change is seen at once, without a restart. */
+    gamepad_face_swap_set(0);
+    check(!gamepad_face_swap(), "the button turns the swap off");
+    check(switch_bits(gamepad_face_positions_swapped(1, 0, 0, 0, 1)) == GAMEPAD_SWITCH_B,
+          "with the swap off, buttonA drives the game's B again");
+    gamepad_face_swap_set(1);
+    check(gamepad_face_swap(), "the button turns the swap on");
+    check(switch_bits(gamepad_face_positions_swapped(1, 0, 0, 0, 1)) == GAMEPAD_SWITCH_A,
+          "with the swap on, buttonA drives the game's A");
+    /* The button's choice overrules the variable the pane handed over: the player pressed the button, so the button
+       is what counts. */
+    setenv("TOTK_FACE_SWAP", "0", 1);
+    check(gamepad_face_swap(), "the button's choice stands against the variable");
+    gamepad_face_swap_set(0);
+    check(!gamepad_face_swap(), "the button turns the swap off again");
+    /* -1 gives the variable back: the pane's row is the choice again. */
+    gamepad_face_swap_set(-1);
+    check(!gamepad_face_swap(), "with the button's choice gone, the variable decides");
+    setenv("TOTK_FACE_SWAP", "1", 1);
+    check(gamepad_face_swap(), "the variable decides again");
+
     /* A controller read by label (a Nintendo one, or TOTK_FACE_BUTTONS=label) is already right and is not touched. */
     for (int p = 0; p < 4; p++) {
         uint64_t got = gamepad_face_positions_swapped(presses[p].a, presses[p].b, presses[p].x, presses[p].y, 0);
@@ -92,6 +114,6 @@ int main(void) {
           "by label, buttonA drives the game's A");
 
     if (failures) { printf("%d check(s) failed\n", failures); return 1; }
-    printf("face buttons' swap: 18 checks passed\n");
+    printf("face buttons' swap: 24 checks passed\n");
     return 0;
 }

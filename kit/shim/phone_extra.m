@@ -30,9 +30,9 @@ uint64_t phone_available_memory(void) { return (uint64_t)os_proc_available_memor
 
 /* ---- The phone's heat ---- */
 
-/* The cap the player chose (30 or 60). The thermal rule may lower it for a while; it never raises it above the choice.
-   -1 until it is known: the first look at the runtime tells us the player's choice (the Settings app's row, through
-   TOTK_PHONE_FPS, or the touch controls' button). */
+/* The cap the player chose (30, 60 or 0 for uncapped). The thermal rule may lower it for a while; it never raises it
+   above the choice. -1 until it is known: the first look at the runtime tells us the player's choice (the Settings app's
+   row, through TOTK_PHONE_FPS, or the touch controls' button). */
 static _Atomic int g_cap = -1;
 
 /* The value this file last handed to the runtime (-1: none yet). A cap the runtime shows that this file did not make is
@@ -57,9 +57,10 @@ static void push_cap(int fps) {
     g_applied = fps;
 }
 
-/* The player changes the cap (the Settings app's row, the touch controls' button). */
+/* The player changes the cap (the Settings app's row, the touch controls' button). The rates are 30, 60 and 0 (the
+   game's own clock above the display's rate: the uncapped setting). */
 void phone_frame_cap_set(int fps) {
-    if (fps != 30 && fps != 60) return;
+    if (fps != 30 && fps != 60 && fps != 0) return;
     atomic_store(&g_cap, fps);
     push_cap(fps);
 }
@@ -117,9 +118,10 @@ static void phone_settings_watch(void) {
         g_applied = cur;
         fprintf(stderr, "[totk] frame cap: %d (the player's choice)\n", cur);
     }
-    /* The cap: the player's choice, 30 while the phone is pressed. */
+    /* The cap: the player's choice, 30 while the phone is pressed. The uncapped setting (0) is the game's own clock
+       above the display's rate: a hot phone holds 30 instead, and the player's choice comes back when it cools. */
     int want = phone_frame_cap();
-    if (phone_is_pressed() && want > 30) want = 30;
+    if (phone_is_pressed() && want != 30) want = 30;
     if (want != cur) push_cap(want);
     /* The interpolation: off while the phone is pressed (it is GPU work on top of the game's own frames). */
     int mfx = phone_is_pressed() ? 0 : g_mfx_choice;

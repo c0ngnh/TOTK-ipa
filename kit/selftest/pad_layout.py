@@ -7,6 +7,10 @@ wrong control. The two small buttons at the top (the frame rate and the pad's ow
 margins, so the shim's overPill guard gives the pills priority there; this test models that guard and checks the
 result, so the layout cannot silently regress again.
 
+The top row now holds four small controls: the frame rate (fps), the pad's own button (toggle), the motion source's
+button (motion) and the face buttons' swap (swap). Each is drawn and hit on its own, so none of them may cover
+another one, and a tap near the boundary must pick exactly one of them.
+
     usage: pad_layout.py [path to touch_pad_botw.m]
 """
 import re
@@ -29,13 +33,14 @@ SCREENS = [
 
 # The touch margin a finger needs around a pill (touch_pad_botw.m's pillTouchRect).
 PILL_MARGIN = 8
-# The grab circle of the two small top buttons, as a multiple of their radius (inFps / inToggle).
+# The grab circle of the small top buttons, as a multiple of their radius (inFps / inToggle / inMotion / inSwap).
 SMALL_GRAB = 1.6
 # The shoulders' grab radius, as a multiple of their radius (lockedAt).
 DROP_GRAB = 1.35
 
 NEEDED = ('K_PILL_DX', 'K_PILL_Y', 'K_PILL_W', 'K_PILL_H', 'K_FPS_R', 'K_PAD_TOGGLE_GAP',
-          'K_PAD_TOGGLE_R', 'K_CLICK_X', 'K_CLICK_R', 'K_ZL_X', 'K_ZL_Y', 'K_ZL_R')
+          'K_PAD_TOGGLE_R', 'K_MOTION_GAP', 'K_MOTION_W', 'K_MOTION_R', 'K_SWAP_GAP', 'K_SWAP_R',
+          'K_CLICK_X', 'K_CLICK_R', 'K_ZL_X', 'K_ZL_Y', 'K_ZL_R')
 
 
 def constants(path):
@@ -79,6 +84,9 @@ def layout(k, width, height, left, right):
     pill_h, pill_w, pill_dx = k['K_PILL_H'] * u, k['K_PILL_W'] * u, k['K_PILL_DX'] * u
     fps_r, tog_r = k['K_FPS_R'] * u, k['K_PAD_TOGGLE_R'] * u
     gap = k['K_PAD_TOGGLE_GAP'] * u
+    mot_r, mot_w = k['K_MOTION_R'] * u, k['K_MOTION_W'] * u
+    mot_gap = k['K_MOTION_GAP'] * u
+    swp_r, swp_gap = k['K_SWAP_R'] * u, k['K_SWAP_GAP'] * u
 
     def pill(sign):
         c = mid + sign * pill_dx
@@ -87,31 +95,56 @@ def layout(k, width, height, left, right):
     def grown(r, m):
         return (r[0] - m, r[1] - m, r[2] + m, r[3] + m)
 
+    def circle(cx, r):
+        """A circle's bounding box, at the pill row's height."""
+        return (cx - r, pill_y - r, cx + r, pill_y + r)
+
     minus, plus = pill(-1), pill(1)
     fps_c = mid
     tog_c = mid + pill_dx + pill_w / 2 + gap
-    fps = (fps_c - fps_r, pill_y - fps_r, fps_c + fps_r, pill_y + fps_r)
-    tog = (tog_c - tog_r, pill_y - tog_r, tog_c + tog_r, pill_y + tog_r)
+    # The motion source's button: its centre is measured from the pad's own button's centre (the shim's motionCenter).
+    mot_c = tog_c + tog_r + mot_gap + mot_r
+    # The face buttons' swap: its centre is measured from the motion source's button's centre (the shim's swapCenter).
+    swp_c = mot_c + mot_r + swp_gap + swp_r
+    fps = circle(fps_c, fps_r)
+    tog = circle(tog_c, tog_r)
+    # The motion source's button is drawn as a rounded pill, wider than its radius (it carries two words).
+    motion = (mot_c - mot_w / 2, pill_y - mot_r, mot_c + mot_w / 2, pill_y + mot_r)
+    swap = circle(swp_c, swp_r)
     r3_c, r3_r = smax - k['K_CLICK_X'] * u, k['K_CLICK_R'] * u
     r3 = (r3_c - r3_r, top + k['K_ZL_Y'] * u - r3_r, r3_c + r3_r, top + k['K_ZL_Y'] * u + r3_r)
     zr_c, zr_r = smax - k['K_ZL_X'] * u, k['K_ZL_R'] * u
     zr = (zr_c - zr_r, top + k['K_ZL_Y'] * u - zr_r, zr_c + zr_r, top + k['K_ZL_Y'] * u + zr_r)
 
     pill_touch = {'minus': grown(minus, PILL_MARGIN * u), 'plus': grown(plus, PILL_MARGIN * u)}
-    # The two small buttons reach into the pills' margins; the pills win there (the shim's overPill guard).
+    # The small buttons reach into the pills' margins; the pills win there (the shim's overPill guard).
     fps_touch = [grown(fps, (SMALL_GRAB - 1) * fps_r)]
     tog_touch = [grown(tog, (SMALL_GRAB - 1) * tog_r)]
-    for name, regions in (('fps', fps_touch), ('toggle', tog_touch)):
+    mot_touch = [grown(circle(mot_c, mot_r), (SMALL_GRAB - 1) * mot_r)]
+    swp_touch = [grown(circle(swp_c, swp_r), (SMALL_GRAB - 1) * swp_r)]
+    for regions in (fps_touch, tog_touch, mot_touch, swp_touch):
         for hole in pill_touch.values():
             regions[:] = [piece for region in regions for piece in subtract(region, hole)]
+    # The shim's inMotion / inSwap guards: a button whose grab circle would reach another one's is refused there, so a
+    # tap near the boundary picks the nearer button and never both. The shim refuses a tap whose distance to the other
+    # button's centre is under the sum of the two grab radii, so that sum is the hole.
+    mot_touch[:] = [piece for region in mot_touch
+                    for piece in subtract(region, circle(tog_c, (tog_r + mot_r) * SMALL_GRAB))]
+    swp_touch[:] = [piece for region in swp_touch
+                    for piece in subtract(region, circle(mot_c, (mot_r + swp_r) * SMALL_GRAB))]
+    swp_touch[:] = [piece for region in swp_touch
+                    for piece in subtract(region, circle(tog_c, (tog_r + swp_r) * SMALL_GRAB))]
 
     return {
-        'visual': {'minus': [minus], 'plus': [plus], 'fps': [fps], 'toggle': [tog], 'R3': [r3], 'ZR': [zr]},
+        'visual': {'minus': [minus], 'plus': [plus], 'fps': [fps], 'toggle': [tog], 'motion': [motion],
+                   'swap': [swap], 'R3': [r3], 'ZR': [zr]},
         'touch': {
             'minus': [pill_touch['minus']],
             'plus': [pill_touch['plus']],
             'fps': fps_touch,
             'toggle': tog_touch,
+            'motion': mot_touch,
+            'swap': swp_touch,
             'R3': [grown(r3, 0)],
             'ZR': [grown(zr, (DROP_GRAB - 1) * zr_r)],
         },
@@ -132,7 +165,7 @@ def check(path):
     # The guard this test relies on has to be there.
     if 'overPill' not in src:
         raise SystemExit(f'{path}: the overPill guard is gone')
-    for name in ('inFps', 'inToggle'):
+    for name in ('inFps', 'inToggle', 'inMotion', 'inSwap'):
         body = src.split(f'- (BOOL){name}:', 1)
         if len(body) < 2:
             raise SystemExit(f'{path}: {name} is gone')
@@ -162,6 +195,20 @@ def check(path):
             bad += 1
         if tog[2] >= lay['visual']['R3'][0][0]:
             print(f'{name}: the pad\'s own button covers the R3 button')
+            bad += 1
+        # The same for the motion source's and the swap's buttons: they are further out, so they must not reach the R3
+        # button or the ZR teardrop either.
+        for key in ('motion', 'swap'):
+            rect = lay['visual'][key][0]
+            if rect[2] >= lay['visual']['R3'][0][0]:
+                print(f'{name}: the {key} button covers the R3 button')
+                bad += 1
+            if rect[2] >= lay['visual']['ZR'][0][0]:
+                print(f'{name}: the {key} button covers the ZR button')
+                bad += 1
+        # The swap's button must not touch the motion source's button it sits next to.
+        if lay['visual']['swap'][0][0] <= lay['visual']['motion'][0][2]:
+            print(f'{name}: the swap button covers the motion source\'s button')
             bad += 1
 
     if bad:

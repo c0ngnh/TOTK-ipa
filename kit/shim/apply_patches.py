@@ -475,6 +475,17 @@ def main(tree):
     # hands over as that environment variable; without the variable nothing is swapped, as before.
     layout_h = tree / 'runtime/gamepad_layout.h'
     replace_once(layout_h,
+                 '#include <ctype.h>\n'
+                 '#include <stdint.h>\n'
+                 '#include <stdlib.h>\n'
+                 '#include <string.h>\n',
+                 '#include <ctype.h>\n'
+                 '#include <stdatomic.h>\n'
+                 '#include <stdint.h>\n'
+                 '#include <stdlib.h>\n'
+                 '#include <string.h>\n',
+                 '#10 the face buttons swapped need the atomics')
+    replace_once(layout_h,
                  'static inline uint64_t gamepad_face_positions(int a, int b, int x, int y, int by_position) {\n'
                  '    enum { SOUTH = 1, EAST = 2, WEST = 4, NORTH = 8 };\n'
                  '    if (by_position) return (a ? SOUTH : 0) | (b ? EAST : 0) | (x ? WEST : 0) | (y ? NORTH : 0);\n'
@@ -498,11 +509,23 @@ def main(tree):
                  '   right (its A is on the right, where the game shows A), so swapping it would break it; the same goes\n'
                  '   for TOTK_FACE_BUTTONS=label, which asks for the labels as they are.\n'
                  '   TOTK_FACE_SWAP=1 turns it on; the Settings pane\'s own row hands the choice over as that variable.\n'
-                 '   Without the variable nothing is swapped, which is what the game had before. */\n'
+                 '   Without the variable nothing is swapped, which is what the game had before.\n'
+                 '   The on-screen pad\'s own button (kit/shim/touch_pad_botw.m) can also change it while the game runs, so\n'
+                 '   the choice is held in a variable of our own and not only in the environment: the variable the pane\n'
+                 '   sets is read as it was, and the button then overrules it (runtime_gamepad_face_swap_set). The\n'
+                 '   environment is not changed: a second game thread would only see the launch value again that way. */\n'
+                 'static _Atomic int g_face_swap = -1;   /* -1: the button has not chosen yet; 0 off, 1 on */\n'
                  'static inline int gamepad_face_swap(void) {\n'
+                 '    int v = atomic_load(&g_face_swap);\n'
+                 '    if (v >= 0) return v;   /* the player\'s choice at the button stands */\n'
                  '    const char *e = getenv("TOTK_FACE_SWAP");\n'
                  '    return e && *e && strcmp(e, "0") != 0;\n'
                  '}\n'
+                 '\n'
+                 '/* TOTK-ipa: the swap in force, set by the on-screen pad\'s button while the game runs. The button\'s choice\n'
+                 '   stands against the environment (the pane\'s row is the choice at the launch); -1 gives the environment\n'
+                 '   back, so the button and the pane never fight over two answers at once. */\n'
+                 'static inline void gamepad_face_swap_set(int on) { atomic_store(&g_face_swap, on < 0 ? -1 : on ? 1 : 0); }\n'
                  '\n'
                  '/* The physical positions, with the pairs exchanged when the player asked for it. */\n'
                  'static inline uint64_t gamepad_face_positions_swapped(int a, int b, int x, int y, int by_position) {\n'
@@ -517,6 +540,249 @@ def main(tree):
                  '       Nintendo arrangement whatever the controller\'s labels are. */\n'
                  '    uint64_t buttons = gamepad_face_positions_swapped(pad.buttonA.isPressed, pad.buttonB.isPressed, pad.buttonX.isPressed, pad.buttonY.isPressed, by_position);\n',
                  '#10 the controller\'s face buttons go through the swap')
+
+    # --- #11: the on-screen pad's own button changes the face buttons' swap while the game runs ---
+    # The Settings pane's row (TOTK_FACE_SWAP) can only be changed between launches, and a player with a Bluetooth
+    # controller would rather have a button on the pad itself: the same button that picks the motion source, next to
+    # it. The runtime holds the choice (gamepad_layout.h's flag), so the change takes effect at once, without a
+    # restart, and it reaches the game on the next frame.
+    # The runtime API is declared in runtime.h and defined in runtime/gamepad.m, next to the controller's own settings.
+    replace_once(runtime_h,
+                 'int runtime_gamepad_type_set(int type);     /* runtime/gamepad.m: the settings panel\'s controller type (gamepad_layout.h GAMEPAD_TYPE_*), saved; returns the type in force */\n',
+                 'int runtime_gamepad_type_set(int type);     /* runtime/gamepad.m: the settings panel\'s controller type (gamepad_layout.h GAMEPAD_TYPE_*), saved; returns the type in force */\n'
+                 '/* TOTK-ipa: the Bluetooth controller\'s face buttons swapped (the user\'s request, 2026-11-03): A and B take\n'
+                 '   each other\'s place, and X and Y take each other\'s, so the game sees the Nintendo arrangement (A right,\n'
+                 '   B bottom, X top, Y left) whatever the controller calls the buttons it pressed. Only a controller read\n'
+                 '   by position is swapped; a Nintendo one is read by label and is already right.\n'
+                 '   The on-screen pad\'s button sets it while the game runs (runtime_gamepad_face_swap_set); the Settings\n'
+                 '   pane\'s row (TOTK_FACE_SWAP) is the choice at the launch. The getter tells the app which one is in\n'
+                 '   force, so the button can show it. */\n'
+                 'void runtime_gamepad_face_swap_set(int on);   /* runtime/gamepad.m: the swap in force, at once */\n'
+                 'int runtime_gamepad_face_swap(void);          /* runtime/gamepad.m: the swap in force (1 or 0) */\n',
+                 '#11 the face swap in the runtime')
+    replace_once(tree / 'runtime/gamepad.m',
+                 'static void save_controller_type(int type) { setting_write("controller-type.txt", gamepad_type_name(type), "controller type"); }\n',
+                 'static void save_controller_type(int type) { setting_write("controller-type.txt", gamepad_type_name(type), "controller type"); }\n'
+                 '\n'
+                 '/* TOTK-ipa: the face buttons\' swap (the user\'s request, 2026-11-03). The on-screen pad\'s button changes it\n'
+                 '   while the game runs, so the choice is a variable of our own and not only the environment the Settings\n'
+                 '   pane hands over at the launch (gamepad_layout.h reads that variable once, on the first call). */\n'
+                 'void runtime_gamepad_face_swap_set(int on) { gamepad_face_swap_set(on != 0); }\n'
+                 'int runtime_gamepad_face_swap(void) { return gamepad_face_swap(); }\n',
+                 '#11 the face swap in the runtime')
+
+    # --- #12: the phone's frame rate has three settings: 30, 60 and uncapped (the user's request, 2026-11-03) ---
+    # The runtime knew two: held at 30 (TOTK_PHONE_FPS) and the display's rate. The uncapped setting is the runtime's own
+    # uncapped path (uncapped_now), but on the phone its ceiling was the display's rate (uncapped_cap: TOTK_UNCAPPED_HZ
+    # is "display" there), so it ran at 60 and was not the uncapped the button promises.
+    # The change is in three places:
+    #   - the rate in force is one number: 30, 60 or 0 (uncapped), so the button's three-way cycle and the runtime agree;
+    #   - the uncapped ceiling on the phone is the runtime's own PHONE_UNCAPPED_HZ, above the display's rate: the game is
+    #     paced by its own clock and the display link shows the newest finished frame at every refresh (the uncapped path);
+    #   - the held rate still wins over the uncapped one, and the real-time frame step (game_patches*.c) keeps the game's
+    #     speed at any rate, so nothing runs fast.
+    # The runtime's phone_hold30 flag stays, so the code that reads it (game_hold_fps, sr_frame) keeps working.
+    replace_once(tree / 'third_party/d2r_gfx/gfx/nvn/hle_nvn.c',
+                 'static _Atomic int g_phone_hold30 = -1;   /* -1: TOTK_PHONE_FPS not read yet */\n'
+                 'static int phone_holds_30(void) {\n'
+                 '#if TARGET_OS_IPHONE\n'
+                 '    int v = atomic_load(&g_phone_hold30);\n'
+                 '    if (v < 0) { const char *e = getenv("TOTK_PHONE_FPS"); v = e && atoi(e) == 30; atomic_store(&g_phone_hold30, v); }\n'
+                 '    return v;\n'
+                 '#else\n'
+                 '    return 0;\n'
+                 '#endif\n'
+                 '}\n'
+                 'int runtime_phone_fps(void) { return phone_holds_30() ? 30 : 60; }\n'
+                 'void runtime_phone_fps_set(int fps) { atomic_store(&g_phone_hold30, fps == 30); fprintf(stderr, "[totk] phone frame rate: %s\\n", fps == 30 ? "held at 30" : "up to 60"); }\n',
+                 'static _Atomic int g_phone_hold30 = -1;   /* -1: TOTK_PHONE_FPS not read yet */\n'
+                 'static int phone_holds_30(void) {\n'
+                 '#if TARGET_OS_IPHONE\n'
+                 '    int v = atomic_load(&g_phone_hold30);\n'
+                 '    if (v < 0) { const char *e = getenv("TOTK_PHONE_FPS"); v = e && atoi(e) == 30; atomic_store(&g_phone_hold30, v); }\n'
+                 '    return v;\n'
+                 '#else\n'
+                 '    return 0;\n'
+                 '#endif\n'
+                 '}\n'
+                 '/* TOTK-ipa (2026-11-03): the phone\'s frame rate in force is one number: 30 (held at 30), 60 (the display\'s\n'
+                 '   rate) or 0 (uncapped). The button\'s three-way cycle (settings_map.c totk_frame_button_target) and the\n'
+                 '   runtime agree on that one number, so a button press and the Settings pane\'s row mean the same thing.\n'
+                 '   The uncapped setting is the runtime\'s own uncapped path with the ceiling above the display\'s rate\n'
+                 '   (PHONE_UNCAPPED_HZ): the game is paced by its own clock and the display link shows the newest finished\n'
+                 '   frame at every refresh. The game keeps its speed at any rate (the real-time frame step,\n'
+                 '   game_patches*.c, follows the measured frame time), so the higher rate does not make the game run fast. */\n'
+                 'static _Atomic int g_phone_fps = -1;   /* -1: the rate not read yet */\n'
+                 'int runtime_phone_fps(void) {\n'
+                 '    int v = atomic_load(&g_phone_fps);\n'
+                 '    if (v < 0) { const char *e = getenv("TOTK_PHONE_FPS"); v = e ? atoi(e) : 60; atomic_store(&g_phone_fps, v); }\n'
+                 '    return v == 30 ? 30 : v == 0 ? 0 : 60;\n'
+                 '}\n'
+                 'void runtime_phone_fps_set(int fps) {\n'
+                 '    if (fps != 30 && fps != 60 && fps != 0) return;\n'
+                 '    atomic_store(&g_phone_fps, fps);\n'
+                 '    atomic_store(&g_phone_hold30, fps == 30);\n'
+                 '    fprintf(stderr, "[totk] phone frame rate: %s\\n", fps == 30 ? "held at 30" : fps == 0 ? "uncapped" : "up to 60");\n'
+                 '}\n',
+                 '#12 the phone\'s frame rate in three settings')
+    # The uncapped ceiling on the phone: the runtime's own clock above the display's rate. The display link still shows
+    # the newest finished frame at every refresh, so the extra frames are the game's own (a smoother input response and a
+    # steadier simulation), not more pictures on the screen.
+    replace_once(tree / 'third_party/d2r_gfx/gfx/nvn/hle_nvn.c',
+                 '#define UNCAPPED_HZ 240           /* the highest TOTK_UNCAPPED_HZ takes */\n'
+                 '#define UNCAPPED_DEFAULT_HZ 144   /* the Mac\'s ceiling without TOTK_UNCAPPED_HZ */\n',
+                 '#define UNCAPPED_HZ 240           /* the highest TOTK_UNCAPPED_HZ */\n'
+                 '#define UNCAPPED_DEFAULT_HZ 144   /* the Mac\'s ceiling without TOTK_UNCAPPED_HZ */\n'
+                 '/* TOTK-ipa (2026-11-03): the phone\'s uncapped ceiling, used when the frame-rate button is on "uncapped".\n'
+                 '   The display link is fixed at 60 Hz (frontend_ios.m TOTK_IOS_LINK_HZ), so the game cannot show more\n'
+                 '   pictures than that; the extra frames are the game\'s own, so the input is read and answered sooner and\n'
+                 '   the simulation runs at a steadier step. 120 is the rate: it is twice the link\'s, so the game is never\n'
+                 '   more than one frame ahead of the picture on the screen, and the phone is not asked for more than a\n'
+                 '   120 Hz game can hold. The real-time frame step keeps the game\'s speed at that rate. */\n'
+                 '#define PHONE_UNCAPPED_HZ 120\n',
+                 '#12 the phone\'s uncapped ceiling')
+    # The uncapped setting itself: the phone's rate is 0 (uncapped). The rate in force is asked for every frame, so the
+    # button's press takes effect at once: the ceiling is not read once, when the display is configured.
+    replace_once(tree / 'third_party/d2r_gfx/gfx/nvn/hle_nvn.c',
+                 'static int uncapped_now(void) { int m = mfx_enabled(); return g_uncapped && !game_hold_fps() && (m == MFX_OFF || m == MFX_MAX); }\n',
+                 'static int uncapped_now(void) { int m = mfx_enabled(); return g_uncapped && !game_hold_fps() && (m == MFX_OFF || m == MFX_MAX); }\n'
+                 '/* TOTK-ipa (2026-11-03): the phone\'s uncapped setting: the frame-rate button on "uncapped" (the rate is 0).\n'
+                 '   The rate in force is asked for every frame, so a button press takes effect at once. */\n'
+                 'static int phone_uncapped_on(void) { return runtime_phone_fps() == 0; }\n',
+                 '#12 the phone\'s uncapped setting')
+    # The rate the game is paced at now. The ceiling is read every frame and not once (present_cfg), so the button's press
+    # takes effect at once: the phone's uncapped setting raises it above the display's rate.
+    replace_once(tree / 'third_party/d2r_gfx/gfx/nvn/hle_nvn.c',
+                 'static uint64_t present_period(const win_t *o) {\n'
+                 '    unsigned itv = present_ticks(o); int m = mfx_enabled(), hz = g_uncapped && !uncapped_now() ? g_paced_hz : g_hz;\n',
+                 '/* TOTK-ipa (2026-11-03): the rate the game is paced at now. The phone\'s uncapped setting raises the ceiling\n'
+                 '   above the display\'s rate (PHONE_UNCAPPED_HZ): the game is paced by its own clock and the display link\n'
+                 '   shows the newest finished frame at every refresh, as the uncapped path does on the Mac. The held rate\n'
+                 '   (30) still wins: the pacing returns it before the rate is looked at (present_period). */\n'
+                 'static int effective_hz(void) {\n'
+                 '    int hz = g_uncapped && !uncapped_now() ? g_paced_hz : g_hz;\n'
+                 '    if (g_uncapped && !game_hold_fps() && phone_uncapped_on()) hz = PHONE_UNCAPPED_HZ;\n'
+                 '    return hz;\n'
+                 '}\n'
+                 'static uint64_t present_period(const win_t *o) {\n'
+                 '    unsigned itv = present_ticks(o); int m = mfx_enabled(), hz = effective_hz();\n',
+                 '#12 the rate the game is paced at now')
+    # The state report tells the player the cap it applies: the same rate the pacing uses.
+    replace_once(tree / 'third_party/d2r_gfx/gfx/nvn/hle_nvn.c',
+                 '    else if (uncapped_now()) { cap = g_hz; src = !dm_detclock_enabled() && uncapped_interval_on() ? SR_CAP_UNCAPPED : SR_CAP_UNCAPPED_INTERVAL; }\n',
+                 '    else if (uncapped_now()) { cap = effective_hz(); src = !dm_detclock_enabled() && uncapped_interval_on() ? SR_CAP_UNCAPPED : SR_CAP_UNCAPPED_INTERVAL; }\n',
+                 '#12 the state report tells the same cap')
+    # The runtime's own declaration says what the rate can be: three settings, not two.
+    replace_once(runtime_h,
+                 'int runtime_phone_fps(void);                /* d2r_gfx hle_nvn.c, iPhone / iPad: 30 while held at 30 (TOTK_PHONE_FPS), else 60 */\n'
+                 'void runtime_phone_fps_set(int fps);        /* 30 holds 30, anything else up to 60: the touch controls\' button, at once */\n',
+                 'int runtime_phone_fps(void);                /* d2r_gfx hle_nvn.c, iPhone / iPad: the rate in force: 30 (held), 60 (the display\'s rate) or 0 (uncapped) */\n'
+                 'void runtime_phone_fps_set(int fps);        /* 30 holds 30, 0 uncapped, 60 up to the display\'s rate: the touch controls\' button, at once */\n',
+                 '#12 the phone\'s frame rate in three settings')
+
+    # --- #13: the Settings pane's frame-rate rows know the uncapped setting (the user's request, 2026-11-03) ---
+    # The pane's rows offer the rates the game can run at: the preset row (TOTK_PHONE_FPS: 30 or 60) and the custom
+    # row (TOTK_FPS_CAP: 30 or 60). The button's third setting, uncapped, is not in them, so a player who wants it has
+    # to press the button on the pad every time (the button's choice is kept, but the pane would overwrite it at the
+    # next launch). The rows get the third choice, so the pane and the button mean the same thing.
+    # The uncapped rate is 0 in the runtime (TOTK_PHONE_FPS=0, runtime_phone_fps): the game's own clock above the
+    # display's rate. The pane writes "uncapped", which the maps turn into that 0.
+    settings_map_h = tree / 'ios/Sources/settings_map.h'
+    replace_once(settings_map_h,
+                 '/* cap is "30" or "60". 0 when cap is not a pane value (out is untouched). The iOS display link is fixed at 60 Hz, so\n'
+                 '   there is no higher entry: the uncapped path could never show more than 60 either. */\n'
+                 'int totk_frame_env_build(const char *cap, totk_frame_env *out);\n',
+                 '/* cap is "30", "60" or "uncapped". 0 when cap is not a pane value (out is untouched). "uncapped" is the\n'
+                 '   game\'s own clock above the display\'s rate (TOTK_PHONE_FPS=0): the display link shows the newest finished\n'
+                 '   frame at every refresh, and the game keeps its speed (the real-time frame step). */\n'
+                 'int totk_frame_env_build(const char *cap, totk_frame_env *out);\n',
+                 '#13 the uncapped rate in the pane')
+    replace_once(settings_map_h,
+                 '/* fps is the pane\'s preset row, "60" (up to the display\'s rate) or "30" (held). 0 for anything else. */\n'
+                 'int totk_preset_frame_env_build(const char *fps, totk_frame_env *out);\n',
+                 '/* fps is the pane\'s preset row, "60" (up to the display\'s rate), "30" (held) or "uncapped". 0 for anything\n'
+                 '   else. */\n'
+                 'int totk_preset_frame_env_build(const char *fps, totk_frame_env *out);\n',
+                 '#13 the uncapped rate in the preset row')
+    replace_once(settings_map_h,
+                 'const char *totk_frame_button_key(int custom);\n'
+                 'int totk_frame_button_target(int held30);   /* 30 or the normal rate (60); the runtime only knows 30 or not-30 */\n',
+                 'const char *totk_frame_button_key(int custom);\n'
+                 '/* The button\'s three-way cycle: the rate in force comes in, the next one goes out. The runtime\'s rates are\n'
+                 '   30 (held), 60 (the display\'s rate) and 0 (uncapped). */\n'
+                 'int totk_frame_button_target(int current);\n',
+                 '#13 the button\'s three-way cycle')
+    settings_map_c = tree / 'ios/Sources/settings_map.c'
+    replace_once(settings_map_c,
+                 'int totk_frame_env_build(const char *cap, totk_frame_env *out) {\n'
+                 '    if (!cap) return 0;\n'
+                 '    totk_frame_env e;\n'
+                 '    if (!strcmp(cap, "30")) e = (totk_frame_env){NULL, "30"};\n'
+                 '    else if (!strcmp(cap, "60")) e = (totk_frame_env){"60", NULL};\n'
+                 '    else return 0;\n'
+                 '    *out = e;\n'
+                 '    return 1;\n'
+                 '}\n',
+                 'int totk_frame_env_build(const char *cap, totk_frame_env *out) {\n'
+                 '    if (!cap) return 0;\n'
+                 '    totk_frame_env e;\n'
+                 '    if (!strcmp(cap, "30")) e = (totk_frame_env){NULL, "30"};\n'
+                 '    else if (!strcmp(cap, "60")) e = (totk_frame_env){"60", NULL};\n'
+                 '    /* TOTK-ipa: the uncapped setting: the game\'s own clock above the display\'s rate. The display link is\n'
+                 '       fixed at 60 Hz, so the picture stays at 60; the game itself runs faster, which makes the input and\n'
+                 '       the simulation steadier. TOTK_PHONE_FPS=0 is the runtime\'s uncapped rate. */\n'
+                 '    else if (!strcmp(cap, "uncapped") || !strcmp(cap, "max")) e = (totk_frame_env){NULL, "0"};\n'
+                 '    else return 0;\n'
+                 '    *out = e;\n'
+                 '    return 1;\n'
+                 '}\n',
+                 '#13 the uncapped rate in the custom row')
+    replace_once(settings_map_c,
+                 'int totk_preset_frame_env_build(const char *fps, totk_frame_env *out) {\n'
+                 '    if (!fps) return 0;\n'
+                 '    if (!strcmp(fps, "30")) *out = (totk_frame_env){NULL, "30"};\n'
+                 '    else if (!strcmp(fps, "60")) *out = (totk_frame_env){NULL, NULL};\n'
+                 '    else return 0;\n'
+                 '    return 1;\n'
+                 '}\n',
+                 'int totk_preset_frame_env_build(const char *fps, totk_frame_env *out) {\n'
+                 '    if (!fps) return 0;\n'
+                 '    if (!strcmp(fps, "30")) *out = (totk_frame_env){NULL, "30"};\n'
+                 '    else if (!strcmp(fps, "60")) *out = (totk_frame_env){NULL, NULL};\n'
+                 '    /* TOTK-ipa: the uncapped setting: the game\'s own clock above the display\'s rate (TOTK_PHONE_FPS=0). */\n'
+                 '    else if (!strcmp(fps, "uncapped") || !strcmp(fps, "max")) *out = (totk_frame_env){NULL, "0"};\n'
+                 '    else return 0;\n'
+                 '    return 1;\n'
+                 '}\n',
+                 '#13 the uncapped rate in the preset row')
+    replace_once(settings_map_c,
+                 'int totk_frame_button_target(int held30) { return held30 ? 60 : 30; }\n',
+                 '/* The button\'s three-way cycle: 30 → 60 → uncapped → 30. The runtime\'s rates are 30, 60 and 0. */\n'
+                 'int totk_frame_button_target(int current) {\n'
+                 '    if (current == 30) return 60;\n'
+                 '    if (current == 60) return 0;\n'
+                 '    return 30;\n'
+                 '}\n',
+                 '#13 the button\'s three-way cycle')
+
+    # --- #14: the start screen's frame-rate choice has the third setting too (the user's request, 2026-11-03) ---
+    # The start screen offers 30 and 60; the button on the pad has three settings (30, 60, uncapped), so a player who
+    # chose the uncapped one on the pad would find the start screen offering only two, and its choice would win at the
+    # next launch. The screen gets the third choice, and the words are the pane's own.
+    start = tree / 'ios/Sources/start_screen.m'
+    replace_once(start,
+                 '    _fps = [[UISegmentedControl alloc] initWithItems:@[@"30 fps", @"60 fps"]];\n'
+                 '    _fps.selectedSegmentIndex = [[d stringForKey:@"TOTK_PHONE_FPS"] isEqualToString:@"30"] ? 0 : 1;\n',
+                 '    /* TOTK-ipa: the third setting (uncapped), so the screen and the pad\'s button offer the same rates. */\n'
+                 '    _fps = [[UISegmentedControl alloc] initWithItems:@[@"30 fps", @"60 fps", T(@"不限帧", @"Uncapped")]];\n'
+                 '    NSString *fpsChoice = [d stringForKey:@"TOTK_PHONE_FPS"];\n'
+                 '    _fps.selectedSegmentIndex = [fpsChoice isEqualToString:@"30"] ? 0 : [fpsChoice isEqualToString:@"uncapped"] ? 2 : 1;\n',
+                 '#14 the uncapped rate on the start screen')
+    replace_once(start,
+                 '    [d setObject:_fps.selectedSegmentIndex == 0 ? @"30" : @"60" forKey:@"TOTK_PHONE_FPS"];\n',
+                 '    /* TOTK-ipa: the third setting (uncapped) as the pane\'s own word for it. */\n'
+                 '    [d setObject:_fps.selectedSegmentIndex == 0 ? @"30" : _fps.selectedSegmentIndex == 2 ? @"uncapped" : @"60" forKey:@"TOTK_PHONE_FPS"];\n',
+                 '#14 the uncapped rate on the start screen')
 
     # The patches are edits of the upstream tree, so they must still hold what they say (kit/shim/patch_check.py).
     # The check is here and not in the workflow, so that the kit's own source carries it: the workflow file can only

@@ -152,8 +152,46 @@ def check(tree):
     gamepad = (tree / 'runtime/gamepad.m').read_text()
     assert 'gamepad_face_positions_swapped(pad.buttonA' in gamepad, 'the controller\'s buttons do not go through the swap'
 
+    # #11: the on-screen pad's own button changes the swap while the game runs (the user's request, 2026-11-03).
+    assert 'void runtime_gamepad_face_swap_set(int on);' in runtime_h, 'the runtime does not take the swap'
+    assert 'int runtime_gamepad_face_swap(void);' in runtime_h, 'the app cannot tell which swap is in force'
+    assert 'runtime_gamepad_face_swap_set(_faceSwap)' in pad, 'the button does not reach the runtime'
+    assert 'gamepad_face_swap_set' in layout_h, 'the swap in force is not held by the runtime'
+    assert 'TOTK_FACE_SWAP' in pad, 'the choice is not kept between launches'
+
+    # #12: the phone's frame rate has three settings: 30, 60 and uncapped (the user's request, 2026-11-03).
+    hle = (tree / 'third_party/d2r_gfx/gfx/nvn/hle_nvn.c').read_text()
+    assert 'int runtime_phone_fps(void);' in runtime_h, 'the runtime does not tell the app the rate'
+    assert '0 (uncapped)' in runtime_h, 'the runtime does not name the uncapped rate'
+    # The rate in force is one number, so the button's cycle and the runtime agree.
+    rate = hle.split('int runtime_phone_fps(void) {', 1)[1].split('\n}\n', 1)[0]
+    assert 'v == 0 ? 0' in rate, 'the uncapped rate is not one of the runtime\'s rates'
+    setter = hle.split('void runtime_phone_fps_set(int fps) {', 1)[1].split('\n}\n', 1)[0]
+    assert 'fps != 0' in setter, 'the runtime does not take the uncapped rate'
+    # The uncapped setting raises the ceiling above the display's rate.
+    assert 'PHONE_UNCAPPED_HZ' in hle, 'the phone\'s uncapped ceiling is missing'
+    assert 'effective_hz()' in hle, 'the rate the game is paced at does not follow the setting'
+    # The held rate still wins over the uncapped one.
+    assert 'game_hold_fps()' in hle.split('static int effective_hz(void) {', 1)[1].split('\n}\n', 1)[0], \
+        'the uncapped setting would overrule the held rate'
+
+    # #13: the Settings pane's frame-rate rows know the third setting.
+    preset = next(s for s in root_plist['PreferenceSpecifiers'] if s.get('Key') == 'TOTK_PHONE_FPS')
+    assert 'uncapped' in preset['Values'], 'the preset row does not offer the uncapped setting'
+    cap = next(s for s in root_plist['PreferenceSpecifiers'] if s.get('Key') == 'TOTK_FPS_CAP')
+    assert 'uncapped' in cap['Values'], 'the custom row does not offer the uncapped setting'
+    settings_map = (tree / 'ios/Sources/settings_map.c').read_text()
+    assert 'totk_frame_button_target(int current)' in settings_map, 'the button\'s cycle is not three-way'
+    cycle = settings_map.split('int totk_frame_button_target(int current) {', 1)[1].split('\n}\n', 1)[0]
+    assert 'if (current == 30) return 60;' in cycle, 'the cycle does not go 30 → 60'
+    assert 'if (current == 60) return 0;' in cycle, 'the cycle does not go 60 → uncapped'
+    assert 'return 30;' in cycle, 'the cycle does not come back to 30'
+    # The button's three settings are what the runtime knows.
+    assert 'totk_frame_button_target(runtime_phone_fps())' in pad, 'the button does not cycle the runtime\'s rate'
+
     print('patches checked: uncapped clock, controller gestures, split image in memory, thermal state, memory readout, '
-          'Metal HUD, the frame interpolation row, the shared fonts, the motion source and the face buttons\' swap',
+          'Metal HUD, the frame interpolation row, the shared fonts, the motion source, the face buttons\' swap and the '
+          'uncapped frame rate',
           flush=True)
 
 
