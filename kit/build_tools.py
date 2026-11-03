@@ -86,7 +86,7 @@ def main():
     def run(cmd, log, cwd=None, env=None, quiet=True):
         if (linux or windows) and cmd and cmd[0] == 'make':
             main_c = Path(cwd) / 'main.c'
-            text = main_c.read_text()
+            text = main_c.read_text(encoding='utf-8')
             if linux and 'fopencookie(' not in text:
                 for old, new in LINUX_SEEK:
                     if text.count(old) != 1:
@@ -153,7 +153,7 @@ def main():
     # the shader translator
     prebuilt = mng / 'games/totk/prebuilt/macos-arm64/totk_xlate'
     if sys.platform == 'darwin' and platform.machine() == 'arm64':
-        if B.sha256(prebuilt) != (prebuilt.parent / 'totk_xlate.sha256').read_text().strip():
+        if B.sha256(prebuilt) != (prebuilt.parent / 'totk_xlate.sha256').read_text(encoding='utf-8').strip():
             raise SystemExit('the prebuilt translator does not match its .sha256')
         shutil.copy2(prebuilt, out / 'totk_xlate')
     else:
@@ -177,7 +177,7 @@ def main():
         # The project links the C++ runtime as -lc++ (macOS). Linux and Windows name it differently, so the flag
         # is replaced with the one of this system (the C# code itself is the same on every system).
         proj = x / 'app/totk_xlate.csproj'
-        text = proj.read_text()
+        text = proj.read_text(encoding='utf-8')
         if '<LinkerArg Include="-lc++" />' in text:
             cxx_arg = '-lc++' if sys.platform == 'darwin' else '-lstdc++' if linux else ''
             if cxx_arg:

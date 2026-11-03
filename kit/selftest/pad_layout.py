@@ -45,7 +45,7 @@ NEEDED = ('K_PILL_DX', 'K_PILL_Y', 'K_PILL_W', 'K_PILL_H', 'K_FPS_R', 'K_PAD_TOG
 
 def constants(path):
     """The layout constants out of the shim's `static const CGFloat` block."""
-    src = path.read_text()
+    src = path.read_text(encoding='utf-8')
     return {name: float(value) for name, value in re.findall(r'\b(K_[A-Z0-9_]+)\s*=\s*([0-9.]+)', src)}
 
 
@@ -156,7 +156,7 @@ def check(path):
     path = Path(path)
     if not path.is_file():
         raise SystemExit(f'no such file: {path}')
-    src = path.read_text()
+    src = path.read_text(encoding='utf-8')
     k = constants(path)
     for name in NEEDED:
         if name not in k:

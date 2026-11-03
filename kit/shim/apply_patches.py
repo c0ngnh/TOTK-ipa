@@ -17,7 +17,7 @@ def replace_once(path, old, new, note):
     text is looked for first, because most of the kit's patches begin with the text they replace (they only add to it),
     and so the old text is still there after the edit: looking for the old text first would patch the file twice.
     """
-    text = path.read_text()
+    text = path.read_text(encoding='utf-8')
     if new in text:
         print(f'  already patched {path.name}: {note}', flush=True)
         return

@@ -31,7 +31,7 @@ def run(args, cwd, log, env):
 
 
 def replace_once(path, old, new):
-    text = path.read_text()
+    text = path.read_text(encoding='utf-8')
     if text.count(old) != 1:
         raise SystemExit(f'{path.name}: expected exactly one "{old.strip()}" (MacNativeGames changed; update kit/build_shell.py)')
     path.write_text(text.replace(old, new))
@@ -104,7 +104,7 @@ def main():
     apply_patches.main(tree)
 
     # The project as build_ipa.py generates it for this version, plus the late-binding reader
-    project = (ios / 'project.yml').read_text()
+    project = (ios / 'project.yml').read_text(encoding='utf-8')
     if '      - path: ../runtime/loader.c' not in project or '      - path: Gen/embed.S' not in project or '-I../build\n' not in project:
         raise SystemExit('project.yml changed; update kit/build_shell.py')
     # The Settings pane, copied so it can be localised (build_ipa.py: settings_strings.localize).
