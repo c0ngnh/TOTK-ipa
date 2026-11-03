@@ -84,6 +84,10 @@ The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad
 - **The ⊙ button at the top right of the + button** shows and hides the whole overlay. With a
   Bluetooth controller connected the pad hides itself; press ⊙ to bring it back for that session, or press it once
   with no controller to keep the picture clear between launches (the choice is remembered).
+- **The motion button next to ⊙** picks which sensor aims the game: the phone's own motion sensor, a Bluetooth
+  controller's motion sensor, or automatic (the controller while it reports motion, the phone otherwise). Tap it to
+  cycle through the three; the choice is remembered between launches. Only the chosen sensor's samples reach the
+  game, so the two never mix.
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A
   Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
 - The **frame-rate button** (the number at the top centre) switches between 60 and 30 as it is held.
@@ -143,6 +147,9 @@ The kit is built by the **Build TOTK-ipa kit** workflow (Actions → Run workflo
   - the Python port of the 1.4.3 code patches writes exactly what MacNativeGames' C code writes;
   - the filled executable passes `codesign --verify`;
   - the tables file round-trips through the app's reader;
+  - the on-screen controller's layout has no overlap on seven screen sizes;
+  - the motion source's gate keeps the phone's sensor and the controller's sensor apart: a source that is not in
+    force never reaches the game;
   - on Windows, the environment, embedding and IPA writing work on synthetic files, and the builder window's pages and
     checks behave.
 

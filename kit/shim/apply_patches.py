@@ -11,7 +11,16 @@ from pathlib import Path
 
 
 def replace_once(path, old, new, note):
+    """Make one checked edit of a file.
+
+    The edit is idempotent: if the new text is already there, the file was patched before and nothing is done. The new
+    text is looked for first, because most of the kit's patches begin with the text they replace (they only add to it),
+    and so the old text is still there after the edit: looking for the old text first would patch the file twice.
+    """
     text = path.read_text()
+    if new in text:
+        print(f'  already patched {path.name}: {note}', flush=True)
+        return
     if text.count(old) != 1:
         raise SystemExit(f'{path.name}: {note}: expected exactly one "{old.strip()[:60]}" '
                          f'(MacNativeGames changed; update kit/shim/apply_patches.py)')
@@ -209,7 +218,252 @@ def main(tree):
                  '    [rows addObjectsFromArray:_hasPicture ? @[pictureRow, fpsRow, note, memory, _start] : @[fpsRow, memory, _start]];\n',
                  '#6 the memory readout on the screen')
 
+    # --- #9: the player picks which sensor feeds the game's six-axis device ---
+    # The iPhone's own motion sensor and a Bluetooth controller's sensor both reach the game's one six-axis device,
+    # so only one of them may drive it. Which one is the player's choice, made on the on-screen pad (the button next
+    # to the pad's own show/hide button, kit/shim/touch_pad_botw.m). The runtime holds the choice and drops the other
+    # source's samples at the door, so the two can never be mixed into one fusion.
+    runtime_h = tree / 'runtime/runtime.h'
+    replace_once(runtime_h,
+                 'void runtime_motion_feed(const double acc_g[3], const double gyro_rad_s[3], uint64_t now_ns);   /* runtime/motion_fusion.c */\n',
+                 'void runtime_motion_feed(const double acc_g[3], const double gyro_rad_s[3], uint64_t now_ns);   /* runtime/motion_fusion.c */\n'
+                 '/* TOTK-ipa: which sensor feeds the game\'s single six-axis device (the user\'s request, 2026-11-03).\n'
+                 '   AUTO: the controller while it reports motion, the phone otherwise. PHONE: the iPhone\'s own sensor.\n'
+                 '   CONTROLLER: the controller\'s sensor. The source in force is the only one whose samples reach the\n'
+                 '   fusion (runtime/motion_fusion.c), so the two never mix. */\n'
+                 'enum { RUNTIME_MOTION_SOURCE_AUTO = 0, RUNTIME_MOTION_SOURCE_PHONE = 1, RUNTIME_MOTION_SOURCE_CONTROLLER = 2 };\n'
+                 'void runtime_motion_source(int source);   /* the source in force (the enum above) */\n'
+                 'int runtime_motion_source_get(void);\n'
+                 'void runtime_motion_feed_phone(const double acc_g[3], const double gyro_rad_s[3], uint64_t now_ns);   /* the iPhone\'s own sensor */\n',
+                 '#9 the motion source in the runtime')
+
+    fusion = tree / 'runtime/motion_fusion.c'
+    # The gate: a sample from the source that is not in force is dropped before it reaches the fusion.
+    replace_once(fusion,
+                 'static int mouse_owns, controller_live, phone_live;\n',
+                 'static int mouse_owns, controller_live, phone_live;\n'
+                 '/* TOTK-ipa: the source in force (the user\'s request, 2026-11-03). The phone\'s sensor and a controller\'s\n'
+                 '   sensor both feed this fusion, and the game has one six-axis device, so only one of them may drive it.\n'
+                 '   The player picks it on the on-screen pad; a sample from the other source is dropped here, before it\n'
+                 '   reaches the fusion, so the two never mix. In automatic mode nothing is dropped: the hand-over between\n'
+                 '   the two is made where it always was (ios/Sources/phone_motion.m), which is what the game had before\n'
+                 '   the choice existed. */\n'
+                 'static int motion_source = RUNTIME_MOTION_SOURCE_AUTO;\n'
+                 '\n'
+                 '/* Is a source allowed to drive the fusion now? A chosen source lets only itself through; in automatic\n'
+                 '   mode both do, as before (lock held). The controller in force yields to the phone when no controller\n'
+                 '   with motion is attached: the player asked for a sensor that is not there, and the game must not be\n'
+                 '   left without motion. The phone\'s own layer makes the same rule (ios/Sources/phone_motion.m). */\n'
+                 'static int source_allows(int who) {   /* who: 0 the controller, 1 the phone */\n'
+                 '    if (motion_source == RUNTIME_MOTION_SOURCE_PHONE) return who == 1;\n'
+                 '    if (motion_source == RUNTIME_MOTION_SOURCE_CONTROLLER) return who == 0 || !controller_live;\n'
+                 '    return 1;\n'
+                 '}\n',
+                 '#9 the motion source gate')
+    # The phone's samples come in through their own door, so the controller\'s and the phone\'s cannot be mixed up.
+    replace_once(fusion,
+                 'void runtime_motion_feed(const double raw_acc[3], const double raw_gyro[3], uint64_t now) {\n'
+                 '    double acc[3], gyro[3];\n'
+                 '    pthread_mutex_lock(&lock);\n',
+                 '/* TOTK-ipa: the phone\'s samples come in through their own door (the user\'s request, 2026-11-03): the\n'
+                 '   controller\'s feed and the phone\'s feed are the same fusion, but only the source in force is let\n'
+                 '   through, and each one keeps its own bias and dead zone. */\n'
+                 'static void feed_source(int who, const double raw_acc[3], const double raw_gyro[3], uint64_t now) {\n'
+                 '    double acc[3], gyro[3];\n'
+                 '    pthread_mutex_lock(&lock);\n'
+                 '    if (!source_allows(who)) { pthread_mutex_unlock(&lock); return; }\n',
+                 '#9 the phone\'s own feed')
+    replace_once(fusion,
+                 '    if (mouse_owns) { pthread_mutex_unlock(&lock); return; }\n'
+                 '    feed_locked(acc, gyro, now);\n'
+                 '    pthread_mutex_unlock(&lock);\n'
+                 '}\n',
+                 '    if (mouse_owns) { pthread_mutex_unlock(&lock); return; }\n'
+                 '    feed_locked(acc, gyro, now);\n'
+                 '    pthread_mutex_unlock(&lock);\n'
+                 '}\n'
+                 'void runtime_motion_feed(const double raw_acc[3], const double raw_gyro[3], uint64_t now) {\n'
+                 '    feed_source(0, raw_acc, raw_gyro, now);   /* the controller\'s sensor */\n'
+                 '}\n'
+                 'void runtime_motion_feed_phone(const double raw_acc[3], const double raw_gyro[3], uint64_t now) {\n'
+                 '    feed_source(1, raw_acc, raw_gyro, now);   /* the iPhone\'s own sensor */\n'
+                 '}\n'
+                 '/* TOTK-ipa: the source in force (the user\'s request, 2026-11-03). Changing it starts the fusion over:\n'
+                 '   the angle and the direction are the new source\'s own, and a bias learned from one sensor is not the\n'
+                 '   other\'s. */\n'
+                 'void runtime_motion_source(int source) {\n'
+                 '    pthread_mutex_lock(&lock);\n'
+                 '    if (motion_source != source) {\n'
+                 '        motion_source = source;\n'
+                 '        restart = 1; last_ns = 0;\n'
+                 '        if (bias_mode == 1) { memset(bias, 0, sizeof bias); memset(bias_logged, 0, sizeof bias_logged); bias_known = 0; win_n = 0; }\n'
+                 '        fprintf(stderr, "[gyro] the motion source is now %s\\n",\n'
+                 '                source == RUNTIME_MOTION_SOURCE_PHONE ? "the phone\'s own sensor" :\n'
+                 '                source == RUNTIME_MOTION_SOURCE_CONTROLLER ? "the controller\'s sensor" : "automatic");\n'
+                 '    }\n'
+                 '    pthread_mutex_unlock(&lock);\n'
+                 '}\n'
+                 'int runtime_motion_source_get(void) { pthread_mutex_lock(&lock); int s = motion_source; pthread_mutex_unlock(&lock); return s; }\n',
+                 '#9 the source in force')
+
+    # The controller's own sensors follow the player's choice too (the user's request, 2026-11-03): with the phone's
+    # sensor in force the controller's sensors are turned off, so the two cannot both report.
+    feedback = tree / 'runtime/gamepad_feedback.m'
+    replace_once(feedback,
+                 '        if (m.sensorsRequireManualActivation) m.sensorsActive = YES;\n',
+                 '        /* TOTK-ipa: the player\'s choice of motion source (the user\'s request, 2026-11-03): with the\n'
+                 '           phone\'s sensor in force the controller\'s sensors stay off, so the two never report at once. */\n'
+                 '        if (m.sensorsRequireManualActivation) m.sensorsActive = runtime_motion_source_get() == RUNTIME_MOTION_SOURCE_PHONE ? NO : YES;\n',
+                 '#9 the controller\'s sensors follow the chosen source')
+    replace_once(feedback,
+                 '        motionPad.motion.sensorsActive = YES;\n',
+                 '        motionPad.motion.sensorsActive = runtime_motion_source_get() == RUNTIME_MOTION_SOURCE_PHONE ? NO : YES;\n'
+                 '        /* TOTK-ipa: the same choice after the app returns (the user\'s request, 2026-11-03). */\n',
+                 '#9 the controller\'s sensors follow the chosen source after the app returns')
+
     print('the kit\'s patches are in place', flush=True)
+
+    # The app's own motion source API (ios/Sources/device_motion.h): the on-screen pad's button picks the source, and
+    # phone_motion.m starts and stops the sensors to match.
+    device_h = tree / 'ios/Sources/device_motion.h'
+    replace_once(device_h,
+                 '#import <Foundation/Foundation.h>\n',
+                 '#import <Foundation/Foundation.h>\n'
+                 '#include "runtime.h"   /* TOTK-ipa: the motion source\'s values (the runtime\'s own enum) */\n',
+                 '#9 the app\'s motion source API: the runtime\'s enum')
+    replace_once(device_h,
+                 'void totk_device_motion_note_touch(void);      /* the touch layer saw a finger: the phone\'s gyro takes the aiming over */\n',
+                 'void totk_device_motion_note_touch(void);      /* the touch layer saw a finger: the phone\'s gyro takes the aiming over */\n'
+                 '/* TOTK-ipa: which sensor feeds the game\'s single six-axis device (the user\'s request, 2026-11-03).\n'
+                 '   AUTO: the controller while it reports motion, the phone otherwise. PHONE: the iPhone\'s own sensor.\n'
+                 '   CONTROLLER: the controller\'s sensor. The values are the runtime\'s own (runtime/runtime.h). */\n'
+                 'enum { TOTK_MOTION_SOURCE_AUTO = RUNTIME_MOTION_SOURCE_AUTO,\n'
+                 '       TOTK_MOTION_SOURCE_PHONE = RUNTIME_MOTION_SOURCE_PHONE,\n'
+                 '       TOTK_MOTION_SOURCE_CONTROLLER = RUNTIME_MOTION_SOURCE_CONTROLLER };\n'
+                 'void totk_device_motion_set_source(int source);   /* the player\'s choice (the pad\'s button); main thread */\n'
+                 'int totk_device_motion_source(void);             /* the source in force */\n',
+                 '#9 the app\'s motion source API')
+
+    # The iPhone's own sensor follows the player's choice (the user's request, 2026-11-03): with the source set to
+    # the phone, the controller's sensors are turned off and the phone's sensor runs; with the source set to the
+    # controller, the phone's sensor stops and the controller's runs; in automatic mode the old hand-over stands.
+    phone = tree / 'ios/Sources/phone_motion.m'
+    replace_once(phone,
+                 'static _Atomic int phone_owns_gyro;                               /* touch took the aiming away from it */\n',
+                 'static _Atomic int phone_owns_gyro;                               /* touch took the aiming away from it */\n'
+                 '/* TOTK-ipa: the source the player picked (the on-screen pad\'s button, the user\'s request, 2026-11-03).\n'
+                 '   AUTO keeps the hand-over below: the controller while it reports motion, the phone otherwise.\n'
+                 '   PHONE forces the iPhone\'s own sensor, CONTROLLER forces the controller\'s. */\n'
+                 'static _Atomic int chosen_source = RUNTIME_MOTION_SOURCE_AUTO;\n',
+                 '#9 the chosen motion source')
+    # The hand-over only stands in automatic mode: a chosen source is the player's decision and nothing takes it away.
+    replace_once(phone,
+                 'void totk_device_motion_note_touch(void) {   /* the touch layer saw a finger (touch_pad.m); main thread */\n'
+                 '    if (enabled && atomic_load(&active) && atomic_load(&controller_has_motion) && !atomic_load(&phone_owns_gyro))\n'
+                 '        claim_phone_gyro();\n'
+                 '}\n',
+                 'void totk_device_motion_note_touch(void) {   /* the touch layer saw a finger (touch_pad.m); main thread */\n'
+                 '    /* TOTK-ipa: a chosen source stands: a finger on the screen does not take the aiming away from the\n'
+                 '       source the player picked (the user\'s request, 2026-11-03). Only in automatic mode does the touch\n'
+                 '       hand the aiming over, as before. */\n'
+                 '    if (atomic_load(&chosen_source) != RUNTIME_MOTION_SOURCE_AUTO) return;\n'
+                 '    if (enabled && atomic_load(&active) && atomic_load(&controller_has_motion) && !atomic_load(&phone_owns_gyro))\n'
+                 '        claim_phone_gyro();\n'
+                 '}\n',
+                 '#9 a chosen source is not taken away by a touch')
+    # The controller's sensor must not be handed back when the player chose the phone, and the phone's sensor must
+    # stop when the player chose the controller.
+    replace_once(phone,
+                 'static void follow_owner(void) {\n'
+                 '    if (!atomic_load(&active)) { watch_gamepad(NO); return; }\n'
+                 '    BOOL pad = atomic_load(&controller_has_motion) && !atomic_load(&phone_owns_gyro);\n'
+                 '    watch_gamepad(atomic_load(&controller_has_motion) && atomic_load(&phone_owns_gyro));\n'
+                 '    if (pad) { stop_updates(); runtime_motion_phone(0); return; }\n'
+                 '    if (!sensing && start_updates()) runtime_motion_phone(1);   /* re-aligned to gravity */\n'
+                 '}\n',
+                 'static void follow_owner(void) {\n'
+                 '    if (!atomic_load(&active)) { watch_gamepad(NO); return; }\n'
+                 '    BOOL pad = atomic_load(&controller_has_motion) && !atomic_load(&phone_owns_gyro);\n'
+                 '    watch_gamepad(atomic_load(&controller_has_motion) && atomic_load(&phone_owns_gyro));\n'
+                 '    /* TOTK-ipa: the chosen source decides (the user\'s request, 2026-11-03). With the controller chosen the\n'
+                 '       phone\'s sensor stops, so the two never report at once; with the phone chosen the phone\'s sensor\n'
+                 '       runs and the controller\'s sensors are turned off (gamepad_feedback.m). In automatic mode the hand-\n'
+                 '       over above stands, as before.\n'
+                 '       The controller chosen with no controller that has motion attached leaves the game without motion,\n'
+                 '       so the phone\'s sensor takes over then: the player asked for a sensor that is not there, and the\n'
+                 '       game must not be left without motion. */\n'
+                 '    int source = atomic_load(&chosen_source);\n'
+                 '    if (source == RUNTIME_MOTION_SOURCE_CONTROLLER && atomic_load(&controller_has_motion)) {\n'
+                 '        stop_updates(); runtime_motion_phone(0); return;\n'
+                 '    }\n'
+                 '    if (source == RUNTIME_MOTION_SOURCE_PHONE || (source == RUNTIME_MOTION_SOURCE_CONTROLLER)) {\n'
+                 '        if (!sensing && start_updates()) runtime_motion_phone(1);   /* re-aligned to gravity */\n'
+                 '        return;\n'
+                 '    }\n'
+                 '    if (pad) { stop_updates(); runtime_motion_phone(0); return; }\n'
+                 '    if (!sensing && start_updates()) runtime_motion_phone(1);   /* re-aligned to gravity */\n'
+                 '}\n',
+                 '#9 the chosen source decides who aims')
+    # The phone's samples go through the phone's own door (runtime/motion_fusion.c).
+    replace_once(phone,
+                 '        runtime_motion_feed(acc, gyro, runtime_now_ns());\n',
+                 '        runtime_motion_feed_phone(acc, gyro, runtime_now_ns());   /* TOTK-ipa: the phone\'s own door */\n',
+                 '#9 the phone\'s samples come in through their own door')
+    # The API the pad's button calls.
+    replace_once(phone,
+                 'void totk_phone_motion_start(void) {\n',
+                 '/* TOTK-ipa: the player picks the motion source (the user\'s request, 2026-11-03). The choice reaches\n'
+                 '   the runtime, which drops the other source\'s samples, and the sensors are started and stopped to\n'
+                 '   match: with the phone chosen the controller\'s sensors go off, with the controller chosen the\n'
+                 '   phone\'s sensor stops. The choice is kept between launches (NSUserDefaults, TOTK_MOTION_SOURCE). */\n'
+                 'void totk_device_motion_set_source(int source) {   /* main thread */\n'
+                 '    if (source != RUNTIME_MOTION_SOURCE_AUTO && source != RUNTIME_MOTION_SOURCE_PHONE &&\n'
+                 '        source != RUNTIME_MOTION_SOURCE_CONTROLLER) return;\n'
+                 '    load_source();\n'
+                 '    if (atomic_exchange(&chosen_source, source) == source) return;\n'
+                 '    runtime_motion_source(source);\n'
+                 '    /* The hand-over flag follows the choice, so the automatic hand-over does not fight it: with the phone\n'
+                 '       chosen the phone holds the aiming, with the controller chosen the controller takes it back. */\n'
+                 '    atomic_store(&phone_owns_gyro, source == RUNTIME_MOTION_SOURCE_PHONE ? 1 : 0);\n'
+                 '    /* The controller\'s sensors follow the choice too: off with the phone in force, on otherwise (so a\n'
+                 '       controller that was silenced by the phone gets its sensors back). */\n'
+                 '    set_controller_sensors(source == RUNTIME_MOTION_SOURCE_PHONE ? NO : YES);\n'
+                 '    follow_owner();\n'
+                 '}\n'
+                 'int totk_device_motion_source(void) { load_source(); return atomic_load(&chosen_source); }\n'
+                 '\n'
+                 'void totk_phone_motion_start(void) {\n',
+                 '#9 the app\'s motion source API')
+    # The choice the player made last time is read once, the first time it is asked for: the on-screen pad's button
+    # asks for it while the view is built, which is before the game starts.
+    replace_once(phone,
+                 'static _Atomic int chosen_source = RUNTIME_MOTION_SOURCE_AUTO;\n',
+                 'static _Atomic int chosen_source = RUNTIME_MOTION_SOURCE_AUTO;\n'
+                 'static int source_loaded;\n'
+                 '\n'
+                 '/* TOTK-ipa: the choice the player made last time (the user\'s request, 2026-11-03), read once and kept\n'
+                 '   in NSUserDefaults (TOTK_MOTION_SOURCE). The on-screen pad\'s button asks for the source while the view\n'
+                 '   is built, which is before the game starts, so it is read here and not in totk_phone_motion_start. */\n'
+                 'static void load_source(void) {\n'
+                 '    if (source_loaded) return;\n'
+                 '    source_loaded = 1;\n'
+                 '    NSInteger saved = [NSUserDefaults.standardUserDefaults integerForKey:@"TOTK_MOTION_SOURCE"];\n'
+                 '    int source = (saved == RUNTIME_MOTION_SOURCE_PHONE || saved == RUNTIME_MOTION_SOURCE_CONTROLLER)\n'
+                 '              ? (int)saved : RUNTIME_MOTION_SOURCE_AUTO;\n'
+                 '    atomic_store(&chosen_source, source);\n'
+                 '    runtime_motion_source(source);\n'
+                 '}\n',
+                 '#9 the saved motion source')
+    # The app's own API when the phone sensor is not built in (the Mac host).
+    replace_once(phone,
+                 'void totk_phone_motion_start(void) {}\n'
+                 'void totk_device_motion_note_touch(void) {}\n',
+                 'void totk_phone_motion_start(void) {}\n'
+                 'void totk_device_motion_note_touch(void) {}\n'
+                 '/* TOTK-ipa: the motion source API (the user\'s request, 2026-11-03); on the Mac the phone has no sensor. */\n'
+                 'void totk_device_motion_set_source(int source) { runtime_motion_source(source); }\n'
+                 'int totk_device_motion_source(void) { return runtime_motion_source_get(); }\n',
+                 '#9 the app\'s motion source API off iOS')
 
     # The patches are edits of the upstream tree, so they must still hold what they say (kit/shim/patch_check.py).
     # The check is here and not in the workflow, so that the kit's own source carries it: the workflow file can only

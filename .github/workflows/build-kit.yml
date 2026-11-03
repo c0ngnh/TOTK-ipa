@@ -49,6 +49,10 @@ jobs:
         run: git init -q mng && git -C mng fetch -q --depth 1 "$MNG_URL" ${{ needs.resolve.outputs.sha }} && git -C mng checkout -q FETCH_HEAD
       - name: totk-late.bin written in Python, read by the app's C reader
         run: python3 kit/selftest/late_roundtrip.py mng
+      - name: The on-screen controller's layout has no overlap
+        run: python3 kit/selftest/pad_layout.py
+      - name: The motion source's gate keeps the two sensors apart
+        run: python3 kit/selftest/motion_source_check.py mng
       - name: Mach-O fill and re-sign on an lld-linked placeholder executable
         run: |
           sudo apt-get install -y -q lld >/dev/null

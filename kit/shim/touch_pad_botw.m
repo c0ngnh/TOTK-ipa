@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include "runtime.h"
 #include "settings_map.h"
+#include "totk_ui_lang.h"
 
 /* The on-screen controller, drawn in Breath of the Wild's style: one CAShapeLayer per control, the shoulder buttons as
    teardrops whose tip points at the screen corner, the face buttons as a diamond and the D-pad as four arms, all with
@@ -42,6 +43,7 @@ static const CGFloat
     K_PILL_DX = 52, K_PILL_Y = 22, K_PILL_W = 50, K_PILL_H = 28,   // − / +: from the screen's midline and the top, size
     K_FPS_R = 15,                                   // the frame-rate button: top centre, level with − / +
     K_PAD_TOGGLE_GAP = 30, K_PAD_TOGGLE_R = 13,       // the pad's own button: the gap past the + pill, radius
+    K_MOTION_GAP = 30, K_MOTION_W = 68, K_MOTION_R = 13,   // the motion source's button: the gap past the pad's own button, its width and radius
     K_STICK_X = 81, K_STICK_R = 77, K_KNOB_R = 30,  // the left stick: mirrors the diamond, the ring as large as the whole diamond
     K_STICK_GRAB = 1.4,                             // how near the ring's centre a touch-down grabs a stick
     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius
@@ -69,13 +71,15 @@ static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
     CAShapeLayer *_controls;                          // every control layer: hidden together by the pad's own button
     CAShapeLayer *_fps; CATextLayer *_fpsLabel; BOOL _fpsHeld;
     CAShapeLayer *_toggle; CATextLayer *_toggleLabel; BOOL _toggleHeld;
+    CAShapeLayer *_motion; CATextLayer *_motionLabel; BOOL _motionHeld;
+    int _motionSource;                               // the source in force: TOTK_MOTION_SOURCE_AUTO / _PHONE / _CONTROLLER
     UIImpactFeedbackGenerator *_touchFeedback;        // one short feedback per press edge
     unsigned _hapticSticks;
     BOOL _stickShown;
     uint64_t _faceBits, _btnBits;
 }
 
-enum { C_NONE = 0, C_STICK, C_DPAD, C_BTN, C_FACE, C_FPS, C_TOGGLE };
+enum { C_NONE = 0, C_STICK, C_DPAD, C_BTN, C_FACE, C_FPS, C_TOGGLE, C_MOTION };
 
 static CAShapeLayer *shape(CALayer *parent) {
     CAShapeLayer *l = [CAShapeLayer layer];
@@ -126,6 +130,11 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
         }
         _fps = shape(controls); _fpsLabel = label(_fps, @"60");
         _toggle = shape(self.layer); _toggleLabel = label(_toggle, padHidden ? @"⊘" : @"⊙");
+        /* The motion source's button: on the view's own layer, so it stays on screen even when the overlay is hidden
+           (a player with a Bluetooth controller may still want to aim with the phone, or with the controller). */
+        _motion = shape(self.layer);
+        _motionSource = totk_device_motion_source();
+        _motionLabel = label(_motion, [self motionLabelFor:_motionSource]);
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserver:self selector:@selector(controllersChanged:) name:GCControllerDidConnectNotification object:nil];
         [center addObserver:self selector:@selector(controllersChanged:) name:GCControllerDidDisconnectNotification object:nil];
@@ -201,6 +210,30 @@ static CATextLayer *label(CALayer *parent, NSString *s) {
     [self applyVisibility];
 }
 
+/* The motion source's button: it shows which sensor feeds the game's six-axis device, and a tap picks the next one
+   (auto → the phone → the controller → auto). The choice is kept between launches (NSUserDefaults), and it reaches
+   the runtime through phone_motion.m, which starts and stops the sensors to match. */
+- (NSString *)motionLabelFor:(int)source {
+    switch (source) {
+        case TOTK_MOTION_SOURCE_PHONE: return TOTK_UI(@"手机", @"Phone");
+        case TOTK_MOTION_SOURCE_CONTROLLER: return TOTK_UI(@"手柄", @"Pad");
+        default: return TOTK_UI(@"自动", @"Auto");
+    }
+}
+- (void)switchMotionSource {
+    /* The three sources in the order the button cycles them. */
+    static const int order[] = {TOTK_MOTION_SOURCE_AUTO, TOTK_MOTION_SOURCE_PHONE, TOTK_MOTION_SOURCE_CONTROLLER};
+    int next = TOTK_MOTION_SOURCE_AUTO;
+    for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); i++)
+        if (order[i] == _motionSource) { next = order[(i + 1) % (sizeof(order) / sizeof(order[0]))]; break; }
+    _motionSource = next;
+    /* The runtime takes the choice: it drops the other source's samples and re-aligns the frame for the new one. */
+    totk_device_motion_set_source(next);
+    [NSUserDefaults.standardUserDefaults setInteger:next forKey:@"TOTK_MOTION_SOURCE"];
+    _motionLabel.string = [self motionLabelFor:next];
+    [self refresh];
+}
+
 /* ---- Layout ---- */
 - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
 - (CGRect)corner {
@@ -260,6 +293,12 @@ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
     CGFloat pillEdge = (K_PILL_DX + K_PILL_W / 2) * u;   // the + pill's outer edge, from the screen's midline
     return CGPointMake(CGRectGetMidX(s) + pillEdge + K_PAD_TOGGLE_GAP * u, CGRectGetMinY(s) + K_PILL_Y * u);
 }
+/* The motion source's button: out past the pad's own button, so it neither covers it nor steals its touches. Its
+   centre is measured from the pad's own button's centre, so the two stay apart whatever the screen's size. */
+- (CGPoint)motionCenter {
+    CGPoint t = self.toggleCenter; CGFloat u = self.u;
+    return CGPointMake(t.x + (K_PAD_TOGGLE_R + K_MOTION_GAP + K_MOTION_R) * u, t.y);
+}
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 
@@ -284,6 +323,12 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
 - (BOOL)inFps:(CGPoint)p { return dist(p, self.fpsCenter) <= K_FPS_R * self.u * 1.6 && ![self overPill:p]; }
 /* The pad's own button's touch area: out past the + pill, so it neither covers the + button nor steals its touches. */
 - (BOOL)inToggle:(CGPoint)p { return dist(p, self.toggleCenter) <= K_PAD_TOGGLE_R * self.u * 1.6 && ![self overPill:p]; }
+/* The motion source's button's touch area: out past the pad's own button, and clear of it (the two circles must not
+   overlap, or a tap near the boundary would pick the wrong one). */
+- (BOOL)inMotion:(CGPoint)p {
+    if (dist(p, self.toggleCenter) <= (K_PAD_TOGGLE_R * 1.6 + K_MOTION_R * 1.6) * self.u) return NO;
+    return dist(p, self.motionCenter) <= K_MOTION_R * self.u * 1.6 && ![self overPill:p];
+}
 - (uint64_t)faceAt:(CGPoint)p {
     uint64_t m = 0; CGFloat r = self.faceR * 1.25;
     for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
@@ -302,7 +347,7 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
 
 /* ---- State ---- */
 - (void)recompute {
-    uint64_t face = 0, btn = 0; BOOL fps = NO, toggle = NO;
+    uint64_t face = 0, btn = 0; BOOL fps = NO, toggle = NO, motion = NO;
     for (UITouch *t in owner.keyEnumerator) {
         uint64_t v = [owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff);
         if (c == C_FACE) {
@@ -316,6 +361,8 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
             fps = YES;
         } else if (c == C_TOGGLE) {
             toggle = YES;
+        } else if (c == C_MOTION) {
+            motion = YES;
         }
     }
     int32_t ax[4] = {0, 0, 0, 0};
@@ -326,14 +373,14 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         CGFloat m = fmin((d - dz) / (R * K_FULL - dz), 1) / d;
         ax[i * 2] = (int32_t)lrint(o.x * m * 32767); ax[i * 2 + 1] = (int32_t)lrint(-o.y * m * 32767);
     }
-    BOOL changed = face != _faceBits || btn != _btnBits || fps != _fpsHeld || toggle != _toggleHeld;
+    BOOL changed = face != _faceBits || btn != _btnBits || fps != _fpsHeld || toggle != _toggleHeld || motion != _motionHeld;
     uint64_t pressed = (face | btn) & ~(_faceBits | _btnBits);
     unsigned gripping = (_stick[0] ? 1u : 0) | (_stick[1] ? 2u : 0);
-    if (pressed || (fps && !_fpsHeld) || (gripping & ~_hapticSticks)) {
+    if (pressed || (fps && !_fpsHeld) || (motion && !_motionHeld) || (gripping & ~_hapticSticks)) {
         [_touchFeedback impactOccurredWithIntensity:0.6]; [_touchFeedback prepare];
     }
     _hapticSticks = gripping;
-    _faceBits = face; _btnBits = btn; _fpsHeld = fps; _toggleHeld = toggle;
+    _faceBits = face; _btnBits = btn; _fpsHeld = fps; _toggleHeld = toggle; _motionHeld = motion;
     RuntimeGamepadState s = {.connected = 1, .buttons = face | btn, .lx = ax[0], .ly = ax[1], .rx = ax[2], .ry = ax[3]};
     runtime_touch_pad_set(&s);
     BOOL stick = _stick[0] || _stick[1];
@@ -350,6 +397,11 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         if ([self inToggle:p]) {
             [owner setObject:@(C_TOGGLE) forKey:t];
             [self togglePad];   /* shows or hides the overlay, like the upstream button */
+            continue;
+        }
+        if ([self inMotion:p]) {
+            [owner setObject:@(C_MOTION) forKey:t];
+            [self switchMotionSource];   /* picks the next motion source, like the upstream button */
             continue;
         }
         if ([self inFps:p]) {
@@ -479,6 +531,11 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
     CGPoint fc = self.fpsCenter; setPath(_fps, circlePath(fc, K_FPS_R * u)); placeLabel(_fpsLabel, fc, 12 * u);
     CGPoint tc = self.toggleCenter; setPath(_toggle, circlePath(tc, K_PAD_TOGGLE_R * u)); placeLabel(_toggleLabel, tc, 13 * u);
+    /* The motion source's button: a rounded pill, wider than the pad's own button, as it carries two words. */
+    CGPoint mc = self.motionCenter;
+    CGRect mr = CGRectMake(mc.x - K_MOTION_W * u / 2, mc.y - K_MOTION_R * u, K_MOTION_W * u, K_MOTION_R * u * 2);
+    setPath(_motion, CGPathCreateWithRoundedRect(mr, mr.size.height / 2, mr.size.height / 2, NULL));
+    placeLabel(_motionLabel, mc, 11 * u);
     /* Both sticks' rings: the left one at its home, the right one at its home too (it follows the finger only while a
        swipe holds it away from there). */
     for (int i = 0; i < 2; i++) {
@@ -506,6 +563,8 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     _fps.fillColor = (_fpsHeld ? k_on : k_idle).CGColor;
     _fpsLabel.foregroundColor = (_fpsHeld ? k_textOn : k_text).CGColor;
     _toggle.fillColor = (_toggleHeld ? k_on : k_idle).CGColor;
+    _motion.fillColor = (_motionHeld ? k_on : k_idle).CGColor;
+    _motionLabel.foregroundColor = (_motionHeld ? k_textOn : k_text).CGColor;
     for (int i = 0; i < 2; i++) {
         CGPoint h = [self stickCentre:i];
         CGPoint o = [self stickOffset:i];

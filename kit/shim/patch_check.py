@@ -98,8 +98,45 @@ def check(tree):
     assert keys.index('TOTK_MFX') > keys.index('TOTK_TAA'), 'the interpolation row must follow the MetalFX group'
     assert keys.index('TOTK_METAL_HUD') > keys.index('TOTK_FPS_OVERLAY'), 'the HUD row belongs to the interface group'
 
+    # #9: the player picks which sensor feeds the game's single six-axis device (the user's request, 2026-11-03).
+    runtime_h = (tree / 'runtime/runtime.h').read_text()
+    assert 'RUNTIME_MOTION_SOURCE_AUTO' in runtime_h, 'the motion sources are not named'
+    assert 'RUNTIME_MOTION_SOURCE_PHONE' in runtime_h, 'the phone\'s own sensor is not one of the sources'
+    assert 'RUNTIME_MOTION_SOURCE_CONTROLLER' in runtime_h, 'the controller\'s sensor is not one of the sources'
+    assert 'void runtime_motion_source(int source);' in runtime_h, 'the runtime does not take the choice'
+    assert 'void runtime_motion_feed_phone(' in runtime_h, 'the phone\'s samples have no door of their own'
+    fusion = (tree / 'runtime/motion_fusion.c').read_text()
+    assert 'source_allows' in fusion, 'the fusion does not gate the sources'
+    # Only the source in force is let through: the gate has to name both the phone and the controller.
+    gate = fusion.split('static int source_allows(int who) {', 1)[1].split('}', 1)[0]
+    assert 'RUNTIME_MOTION_SOURCE_PHONE' in gate, 'the phone\'s source is not gated'
+    assert 'RUNTIME_MOTION_SOURCE_CONTROLLER' in gate, 'the controller\'s source is not gated'
+    assert 'feed_source(0, raw_acc, raw_gyro, now)' in fusion, 'the controller does not feed through the gate'
+    assert 'feed_source(1, raw_acc, raw_gyro, now)' in fusion, 'the phone does not feed through the gate'
+    # The controller's sensors follow the choice, so the two sensors never report at once.
+    feedback = (tree / 'runtime/gamepad_feedback.m').read_text()
+    assert feedback.count('runtime_motion_source_get() == RUNTIME_MOTION_SOURCE_PHONE') == 2, \
+        'the controller\'s sensors must follow the choice, both when they are attached and when the app returns'
+    # The app's own API (the on-screen pad's button).
+    device_h = (tree / 'ios/Sources/device_motion.h').read_text()
+    assert 'totk_device_motion_set_source' in device_h, 'the app has no motion source API'
+    assert 'totk_device_motion_source' in device_h, 'the app cannot tell which source is in force'
+    phone = (tree / 'ios/Sources/phone_motion.m').read_text()
+    assert 'runtime_motion_feed_phone(acc, gyro, runtime_now_ns())' in phone, 'the phone\'s samples do not use their own door'
+    assert 'chosen_source' in phone, 'the phone does not remember the choice'
+    assert 'TOTK_MOTION_SOURCE' in phone, 'the choice is not kept between launches'
+    # A chosen source stands: a touch on the screen must not take the aiming away from it.
+    note = phone.split('void totk_device_motion_note_touch(void)', 1)[1].split('}', 1)[0]
+    assert 'RUNTIME_MOTION_SOURCE_AUTO' in note, 'a chosen source is still taken away by a touch'
+    # The on-screen pad's button: it must be there, next to the pad's own button, and it must reach the app.
+    pad = (KIT / 'shim/touch_pad_botw.m').read_text()
+    assert 'inMotion:' in pad, 'the pad has no motion source button'
+    assert 'switchMotionSource' in pad, 'the motion source button does nothing'
+    assert 'totk_device_motion_set_source(next)' in pad, 'the button does not reach the app'
+    assert 'TOTK_MOTION_SOURCE' in pad, 'the choice is not kept between launches'
+
     print('patches checked: uncapped clock, controller gestures, split image in memory, thermal state, memory readout, '
-          'Metal HUD, the frame interpolation row and the shared fonts', flush=True)
+          'Metal HUD, the frame interpolation row, the shared fonts and the motion source', flush=True)
 
 
 if __name__ == '__main__':
