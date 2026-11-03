@@ -86,6 +86,18 @@ def prepare_venv(venv, requirements, logs):
     return venv
 
 
+def patch_scripts(work):
+    """The kit's own fixes to the upstream build scripts (kit/shim/patch_scripts.py), applied to the work tree.
+
+    They are checked edits (the text to find must be there exactly once), so a tree that already carries them is
+    left alone."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('totk_patch_scripts', KIT / 'shim/patch_scripts.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.main(work)
+
+
 def prepare_tree(work, logs):
     """build_app.prepare_work without rsync/git: a copy of games/totk with its Python environment."""
     tree = work / 'totk'
@@ -109,6 +121,7 @@ def prepare_tree(work, logs):
     dir_link(tree / '.venv', venv)
     for name in ('analysis', 'build'):
         (tree / name).mkdir(exist_ok=True)
+    patch_scripts(work)
     return tree
 
 
