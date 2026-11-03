@@ -13,8 +13,10 @@ another one, and a tap near the boundary must pick exactly one of them.
 
     usage: pad_layout.py [path to touch_pad_botw.m]
 """
+import math
 import re
 import sys
+from math import hypot
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
@@ -37,10 +39,12 @@ PILL_MARGIN = 8
 SMALL_GRAB = 1.6
 # The shoulders' grab radius, as a multiple of their radius (lockedAt).
 DROP_GRAB = 1.35
+# The stick clicks' grab radius, as a multiple of their radius (clickAt).
+CLICK_GRAB = 1.35
 
 NEEDED = ('K_PILL_DX', 'K_PILL_Y', 'K_PILL_W', 'K_PILL_H', 'K_FPS_R', 'K_PAD_TOGGLE_GAP',
           'K_PAD_TOGGLE_R', 'K_MOTION_GAP', 'K_MOTION_W', 'K_MOTION_R', 'K_SWAP_GAP', 'K_SWAP_R',
-          'K_CLICK_X', 'K_CLICK_R', 'K_ZL_X', 'K_ZL_Y', 'K_ZL_R')
+          'K_CLICK_X', 'K_CLICK_Y', 'K_CLICK_R', 'K_ZL_X', 'K_ZL_Y', 'K_ZL_R')
 
 
 def constants(path):
@@ -111,10 +115,20 @@ def layout(k, width, height, left, right):
     # The motion source's button is drawn as a rounded pill, wider than its radius (it carries two words).
     motion = (mot_c - mot_w / 2, pill_y - mot_r, mot_c + mot_w / 2, pill_y + mot_r)
     swap = circle(swp_c, swp_r)
-    r3_c, r3_r = smax - k['K_CLICK_X'] * u, k['K_CLICK_R'] * u
-    r3 = (r3_c - r3_r, top + k['K_ZL_Y'] * u - r3_r, r3_c + r3_r, top + k['K_ZL_Y'] * u + r3_r)
+    # The stick clicks (L3 / R3): outboard of the shoulder buttons, in the top corner.
+    click_r = k['K_CLICK_R'] * u
+    click_y = top + k['K_CLICK_Y'] * u
+    l3_c, r3_c = smin + k['K_CLICK_X'] * u, smax - k['K_CLICK_X'] * u
+    l3 = (l3_c - click_r, click_y - click_r, l3_c + click_r, click_y + click_r)
+    r3 = (r3_c - click_r, click_y - click_r, r3_c + click_r, click_y + click_r)
     zr_c, zr_r = smax - k['K_ZL_X'] * u, k['K_ZL_R'] * u
     zr = (zr_c - zr_r, top + k['K_ZL_Y'] * u - zr_r, zr_c + zr_r, top + k['K_ZL_Y'] * u + zr_r)
+    zl_c = smin + k['K_ZL_X'] * u
+    zl = (zl_c - zr_r, top + k['K_ZL_Y'] * u - zr_r, zl_c + zr_r, top + k['K_ZL_Y'] * u + zr_r)
+    # The shoulder buttons are teardrops whose tip points at the screen's corner, so their bounding box reaches
+    # further out than the round part the stick click has to clear. The click is measured against that round
+    # part: the circle's centre and radius, which is what the shim's own distance check uses.
+    shoulder_circle = {'ZL': (zl_c, top + k['K_ZL_Y'] * u, zr_r), 'ZR': (zr_c, top + k['K_ZL_Y'] * u, zr_r)}
 
     pill_touch = {'minus': grown(minus, PILL_MARGIN * u), 'plus': grown(plus, PILL_MARGIN * u)}
     # The small buttons reach into the pills' margins; the pills win there (the shim's overPill guard).
@@ -135,9 +149,9 @@ def layout(k, width, height, left, right):
     swp_touch[:] = [piece for region in swp_touch
                     for piece in subtract(region, circle(tog_c, (tog_r + swp_r) * SMALL_GRAB))]
 
-    return {
+    layout = {
         'visual': {'minus': [minus], 'plus': [plus], 'fps': [fps], 'toggle': [tog], 'motion': [motion],
-                   'swap': [swap], 'R3': [r3], 'ZR': [zr]},
+                   'swap': [swap], 'L3': [l3], 'R3': [r3], 'ZL': [zl], 'ZR': [zr]},
         'touch': {
             'minus': [pill_touch['minus']],
             'plus': [pill_touch['plus']],
@@ -145,10 +159,12 @@ def layout(k, width, height, left, right):
             'toggle': tog_touch,
             'motion': mot_touch,
             'swap': swp_touch,
-            'R3': [grown(r3, 0)],
-            'ZR': [grown(zr, (DROP_GRAB - 1) * zr_r)],
+            'L3': [grown(l3, (CLICK_GRAB - 1) * click_r)],
+            'R3': [grown(r3, (CLICK_GRAB - 1) * click_r)],
         },
     }
+    layout['shoulder_circle'] = shoulder_circle
+    return layout
 
 
 def check(path):
@@ -177,6 +193,8 @@ def check(path):
     for name, width, height, left, right in SCREENS:
         lay = layout(k, width, height, left, right)
         for kind, rects in lay.items():
+            if kind == 'shoulder_circle':
+                continue
             names = list(rects)
             for a in names:
                 for b in names:
@@ -206,6 +224,35 @@ def check(path):
             if rect[2] >= lay['visual']['ZR'][0][0]:
                 print(f'{name}: the {key} button covers the ZR button')
                 bad += 1
+        # The stick clicks (L3 / R3) sit outboard of the shoulder buttons, in the top corner: they must be on the
+        # screen, and clear of the shoulder next to them.
+        for click, shoulder in (('L3', 'ZL'), ('R3', 'ZR')):
+            rect = lay['visual'][click][0]
+            if rect[0] < 0:
+                print(f'{name}: the {click} button is off the screen\'s edge')
+                bad += 1
+            # The shoulder is a teardrop, so its circle is what the click is measured against (the shim's own
+            # distance check). The click must not reach it.
+            cx, cy, r = lay['shoulder_circle'][shoulder]
+            dc = hypot(rect[0] + (rect[2] - rect[0]) / 2 - cx, rect[1] + (rect[3] - rect[1]) / 2 - cy)
+            if dc <= r:
+                print(f'{name}: the {click} button covers the {shoulder} button')
+                bad += 1
+            # The teardrop's tip points at the corner, so the click must clear that too: the tip is at the
+            # shoulder's centre plus the tip distance, on the diagonal.
+            tip = k['K_DROP_TIP'] * r
+            tx, ty = cx - tip / math.sqrt(2), cy - tip / math.sqrt(2)
+            if hypot(rect[0] + (rect[2] - rect[0]) / 2 - tx, rect[1] + (rect[3] - rect[1]) / 2 - ty) <= \
+                    (rect[2] - rect[0]) / 2:
+                print(f'{name}: the {click} button covers the {shoulder} button\'s tip')
+                bad += 1
+        # L3 must be left of ZL and R3 right of ZR: that is where the player looks for the stick clicks.
+        if lay['visual']['L3'][0][2] > lay['visual']['ZL'][0][0]:
+            print(f'{name}: the L3 button is not to the left of ZL')
+            bad += 1
+        if lay['visual']['R3'][0][0] < lay['visual']['ZR'][0][2]:
+            print(f'{name}: the R3 button is not to the right of ZR')
+            bad += 1
         # The swap's button must not touch the motion source's button it sits next to.
         if lay['visual']['swap'][0][0] <= lay['visual']['motion'][0][2]:
             print(f'{name}: the swap button covers the motion source\'s button')

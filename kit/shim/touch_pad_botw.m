@@ -11,9 +11,9 @@
 
 /* The on-screen controller, drawn in Breath of the Wild's style: one CAShapeLayer per control, the shoulder buttons as
    teardrops whose tip points at the screen corner, the face buttons as a diamond and the D-pad as four arms, all with
-   a soft shadow and a light touch on every press. The layout is a Switch controller's: ZL above L at the top left, ZR
-   above R at the top right, − and + beside each other at the top centre, the left stick and the D-pad on the left, the
-   A/B/X/Y diamond and the right stick on the right, L3 / R3 in the bottom corners.
+   a soft shadow and a light touch on every press. The layout is a Switch controller's: L3 / ZL above L at the top
+   left, R3 / ZR above R at the top right, − and + beside each other at the top centre, the left stick and the D-pad on
+   the left, the A/B/X/Y diamond and the right stick on the right.
 
    The state goes to the runtime through runtime_touch_pad_set (runtime/gamepad.m), which merges it with any physical
    controller. The button bits are the guest's Npad ones: A 1, B 2, X 4, Y 8, L3 16, R3 32, L 64, R 128, ZL 256, ZR 512,
@@ -34,8 +34,8 @@ enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS
 
 /* Layout constants in points, scaled with the screen (u = 1 on a 430-point-tall landscape iPhone). */
 static const CGFloat
-    K_ZL_X = 44, K_ZL_Y = 40, K_ZL_R = 26,          // ZL / ZR: centre from the outer edge and the top, radius
-    K_L_X = 44, K_L_Y = 108, K_L_R = 24,            // L / R: the same column as ZL / ZR
+    K_ZL_X = 74, K_ZL_Y = 40, K_ZL_R = 26,          // ZL / ZR: centre from the outer edge and the top, radius
+    K_L_X = 74, K_L_Y = 108, K_L_R = 24,            // L / R: the same column as ZL / ZR
     K_DROP_TIP = 1.45,                              // the teardrop's tip distance from the centre (times the radius)
     K_CORNER_IN = 0.5,                              // how far the bottom-corner controls reach into the side inset
     K_FACE_X = 81, K_PAD_Y = 82,                    // the diamond's centre from the outer edge, the diamond's and the stick's from the bottom
@@ -54,7 +54,7 @@ static const CGFloat
     K_DPAD_GRAB = 1.3,                              // the D-pad's grab radius (times the outer edge)
     K_RSTICK_R = 60, K_RKNOB_R = 24,                // the right stick: ring and knob radius
     K_RSWIPE = 1.0 / 3,                             // the right stick's area: this fraction of the width from the right edge
-    K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge, radius
+    K_CLICK_X = 22, K_CLICK_Y = 40, K_CLICK_R = 17;  // L3 / R3: centre from the outer edge, their row from the top, radius
 
 static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
 
@@ -297,13 +297,18 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
 - (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u); }
 - (CGFloat)dpadR { return K_DPAD_R * self.u; }
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
-static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b {
     CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
     return side(s, b == B_ZR || b == B_R, (z ? K_ZL_X : K_L_X) * u, CGRectGetMinY(s) + (z ? K_ZL_Y : K_L_Y) * u);
 }
 - (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u; }
-- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; return side(s, b == B_RS, K_CLICK_X * self.u, CGRectGetMinY(s) + K_ZL_Y * self.u); }
+/* The stick clicks (L3 / R3): outboard of the shoulder buttons, in the top corner, the way a controller's are. They
+   are measured from the screen's edge, like the other corner controls, so they stay clear of ZL / ZR whatever the
+   screen's size. */
+- (CGPoint)clickCenter:(int)b {
+    CGRect s = self.safe; CGFloat u = self.u;
+    return side(s, b == B_RS, K_CLICK_X * u, CGRectGetMinY(s) + K_CLICK_Y * u);
+}
 - (CGRect)pillRect:(int)b {
     CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = K_PILL_H * u;
     CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + K_PILL_Y * u);
@@ -340,9 +345,28 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         int b = k_lockedKeys[i];
         BOOL hit = isDrop(b) ? dist(p, [self dropCenter:b]) <= [self dropR:b] * 1.35
                  : CGRectContainsPoint([self pillTouchRect:b], p);
-        if (hit) return b;
+        if (hit && ![self overClick:p]) return b;
     }
     return -1;
+}
+/* The stick clicks (L3 / R3): tapped, not held, so they are not in the locked keys. Their grab circle must not reach
+   the shoulder button next to them, or a tap near the boundary would pick the wrong one. */
+- (int)clickAt:(CGPoint)p {
+    for (int b = B_LS; b <= B_RS; b++) {
+        CGPoint c = [self clickCenter:b];
+        if (dist(p, c) > K_CLICK_R * self.u * 1.35) continue;
+        int shoulder = (b == B_RS) ? B_ZR : B_ZL;
+        if (dist(p, [self dropCenter:shoulder]) <= ([self dropR:shoulder] + K_CLICK_R) * self.u * 1.35) continue;
+        return b;
+    }
+    return -1;
+}
+/* The stick clicks are drawn and hit on their own, so the shoulders' locked keys must not reach them either: a touch
+   on a click must never be taken for a shoulder press. */
+- (BOOL)overClick:(CGPoint)p {
+    for (int b = B_LS; b <= B_RS; b++)
+        if (dist(p, [self clickCenter:b]) <= K_CLICK_R * self.u * 1.35) return YES;
+    return NO;
 }
 /* The − / + pills' touch area: their own rect, grown by the margin a finger needs. */
 - (CGRect)pillTouchRect:(int)b { return CGRectInset([self pillRect:b], -8 * self.u, -8 * self.u); }
@@ -456,6 +480,8 @@ static const int k_lockedKeys[] = {B_ZL, B_ZR, B_L, B_R, B_PLUS, B_MINUS};
         }
         int locked = [self lockedAt:p];
         if (locked >= 0) { [owner setObject:@(C_BTN | (locked << 8)) forKey:t]; continue; }
+        int click = [self clickAt:p];
+        if (click >= 0) { [owner setObject:@(C_BTN | (click << 8)) forKey:t]; continue; }
         /* The face buttons, the D-pad and the two sticks: the nearest one takes the touch. Each stick is grabbed by a
            touch inside its own ring (the grab circle is a little wider than the ring), so a finger lands on the stick
            the player sees, not on whichever one happens to be nearer. */
@@ -567,10 +593,13 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
             BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
             setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u));
             placeLabel(_label[b], c, 16 * u);
-        } else if (isClick(b)) {
-            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u));
-            placeLabel(_label[b], c, 13 * u);
         }
+    }
+    /* The stick clicks (L3 / R3): small circles outboard of the shoulder buttons. They are not in the locked keys
+       list, so they are drawn here: they are pressed with a tap, not held down like the shoulders. */
+    for (int b = B_LS; b <= B_RS; b++) {
+        CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u));
+        placeLabel(_label[b], c, 13 * u);
     }
     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};
     for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));

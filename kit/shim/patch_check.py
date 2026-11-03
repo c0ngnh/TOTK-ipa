@@ -189,6 +189,32 @@ def check(tree):
     # The button's three settings are what the runtime knows.
     assert 'totk_frame_button_target(runtime_phone_fps())' in pad, 'the button does not cycle the runtime\'s rate'
 
+    # #16: the stick clicks (L3 / R3) are on the pad, outboard of the shoulders (the user's request, 2026-11-04).
+    # The enum's B_LS / B_RS are the Npad's L3 / R3 (bits 4 and 5), so the buttons reach the game as the right ones.
+    assert 'B_LS' in pad and 'B_RS' in pad, 'the stick clicks are not in the pad\'s button list'
+    assert '@"L3"' in pad and '@"R3"' in pad, 'the stick clicks carry no label'
+    # They must be drawn: the loop over the locked keys never reaches them, so they need their own.
+    assert 'for (int b = B_LS; b <= B_RS; b++)' in pad, 'the stick clicks are never drawn'
+    # And they must be hit: a tap on one is a button press, not a missed touch.
+    assert '- (int)clickAt:(CGPoint)p' in pad, 'the stick clicks cannot be hit'
+    assert 'int click = [self clickAt:p];' in pad, 'a tap on a stick click is not handled'
+    assert 'C_BTN | (click << 8)' in pad, 'a tap on a stick click does not press the button'
+    # They sit outboard of the shoulders, so the shoulders must not steal their touches, and the other way round.
+    assert 'overClick' in pad, 'the shoulders and the stick clicks can claim the same touch'
+    assert '![self overClick:p]' in pad, 'the shoulders do not give the stick clicks priority'
+    # The layout: L3 is left of ZL, R3 right of ZR.
+    click_x = int(pad.split('K_CLICK_X = ')[1].split(',')[0])
+    zl_x = int(pad.split('K_ZL_X = ')[1].split(',')[0])
+    assert click_x < zl_x, 'L3 is not outboard of ZL'
+
+    # #15: the phone's GameData folder is made for the player (the user's request, 2026-11-04).
+    main_data = (tree / 'ios/Sources/main.m').read_text(encoding='utf-8')
+    assert 'createDirectoryAtPath:gameData' in main_data, 'the phone\'s GameData folder is not made for the player'
+    # It must be made before the folder is looked in, or the first launch would still say there is no game data.
+    assert main_data.index('createDirectoryAtPath:gameData') < main_data.index(
+        'fileExistsAtPath:[gameData stringByAppendingPathComponent:@"romfs.bin"]'), \
+        'the GameData folder is made after it is looked in'
+
     print('patches checked: uncapped clock, controller gestures, split image in memory, thermal state, memory readout, '
           'Metal HUD, the frame interpolation row, the shared fonts, the motion source, the face buttons\' swap and the '
           'uncapped frame rate',

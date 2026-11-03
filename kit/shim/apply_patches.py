@@ -784,6 +784,19 @@ def main(tree):
                  '    [d setObject:_fps.selectedSegmentIndex == 0 ? @"30" : _fps.selectedSegmentIndex == 2 ? @"uncapped" : @"60" forKey:@"TOTK_PHONE_FPS"];\n',
                  '#14 the uncapped rate on the start screen')
 
+    # --- #15: the phone's GameData folder is made for the player (the user's request, 2026-11-04) ---
+    # The game data is copied into Files > On My iPhone > <the app> > GameData. iOS makes the app's own folder in
+    # Documents, but not the GameData folder inside it, so the player had to create it by hand before the copy would
+    # go anywhere. The app makes it at launch, so the folder is there, ready to paste into.
+    main_m = tree / 'ios/Sources/main.m'
+    replace_once(main_m,
+                 '    NSString *gameData = [docs stringByAppendingPathComponent:@"GameData"];\n',
+                 '    NSString *gameData = [docs stringByAppendingPathComponent:@"GameData"];\n'
+                 '    /* TOTK-ipa: the folder the player copies the game data into is made here, so the Files app shows it\n'
+                 '       ready to paste into and the player does not have to create it by hand. */\n'
+                 '    [fm createDirectoryAtPath:gameData withIntermediateDirectories:YES attributes:nil error:nil];\n',
+                 '#15 the phone\'s GameData folder')
+
     # The patches are edits of the upstream tree, so they must still hold what they say (kit/shim/patch_check.py).
     # The check is here and not in the workflow, so that the kit's own source carries it: the workflow file can only
     # be changed by a token with the workflow scope, and that scope is not something a player's token is given.
