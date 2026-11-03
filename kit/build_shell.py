@@ -121,6 +121,11 @@ def main():
     settings_strings.localize(settings)
     # The home screen icon: the game's own, as a single-size asset catalog (build_ipa.py). The kit's import tool adds
     # the icon at the app level, so the shell's catalog only has to exist for the build to succeed.
+    # The icon must be THIS game's: iOS reads the catalog (CFBundleIconName = AppIcon), so the other game's icon in it
+    # would be the icon on the home screen. The check is by content, because a copy of the file is easy to make.
+    sys.path.insert(0, str(KIT / 'tools'))
+    import app_icon
+    app_icon.check_icon(KIT / 'shim/AppIcon-1024.png', 'v143')
     catalog = gen / 'Assets.xcassets'
     shutil.rmtree(catalog, ignore_errors=True)
     appicon = catalog / 'AppIcon.appiconset'

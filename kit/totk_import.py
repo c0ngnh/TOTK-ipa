@@ -216,6 +216,7 @@ def install_icon(app, tree, game, keys, logs):
     The shell is built without any game file, so it has no icon; the icon is taken from the player's own dump here and
     the Info.plist is given the keys that point at it (the older CFBundleIconFiles form, which every iOS reads)."""
     import plistlib
+    import app_icon
     icons = app / 'Icons'
     with (logs / 'app-icon.log').open('w') as log:
         p = subprocess.run([sys.executable, KIT / 'tools/extract_app_icon_ios.py', str(game),
@@ -223,6 +224,8 @@ def install_icon(app, tree, game, keys, logs):
                            stdout=log, stderr=subprocess.STDOUT)
     if p.returncode or not (icons / 'AppIcon60x60@3x.png').is_file():
         raise SystemExit(f'the app icon could not be made; see {logs / "app-icon.log"}')
+    # The icon must be this game's: the extractor reads the title ID, so a wrong one would give the other game's icon.
+    app_icon.check_icon(icons / 'Icon-1024.png', 'v143')
     info = app / 'Info.plist'
     data = plistlib.loads(info.read_bytes())
     data['CFBundleIcons'] = {'CFBundlePrimaryIcon': {'CFBundleIconFiles': ['AppIcon60x60@3x'],
