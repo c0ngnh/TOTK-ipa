@@ -1,0 +1,372 @@
+{
+  "_comment": [
+    "The features a Switch-to-iOS port MUST have. The self-test feature_manifest.py checks the kit",
+    "against this file: the source markers must be present, and the named self-tests must exist.",
+    "",
+    "This is the answer to 'will the next port have the features we built'. A new port that passes",
+    "feature_manifest.py has every feature listed here. A feature that is added to this file",
+    "becomes a requirement for every future port.",
+    "",
+    "The 'kind' is how it is checked: 'source' = a marker text in a kit file; 'test' = a self-test",
+    "that must exist; 'tool' = a tool in kit/tools/ with a marker."
+  ],
+  "features": [
+    {
+      "name": "L3 and R3 on the pad",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "K_CLICK_X",
+        "K_CLICK_Y",
+        "K_CLICK_R",
+        "- (int)clickAt:",
+        "- (BOOL)overClick:",
+        "- (CGPoint)clickCenter:"
+      ],
+      "note": "the stick clicks, L3 left of ZL and R3 right of ZR"
+    },
+    {
+      "name": "the pad's show/hide button",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "- (BOOL)inToggle:",
+        "- (void)togglePad",
+        "- (void)applyVisibility",
+        "- (void)concealIfIdle"
+      ],
+      "note": "the ⊙ button at the top centre"
+    },
+    {
+      "name": "the frame-rate button",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "- (BOOL)inFps:",
+        "frameRateLabel:",
+        "K_FPS_R"
+      ],
+      "note": "cycles 30 / 60 / uncapped"
+    },
+    {
+      "name": "the motion-source button",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "- (BOOL)inMotion:",
+        "- (void)switchMotionSource",
+        "- (NSString *)motionLabelFor:"
+      ],
+      "note": "phone / controller / automatic"
+    },
+    {
+      "name": "the face-button swap button",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "- (BOOL)inSwap:",
+        "- (void)switchFaceSwap",
+        "- (NSString *)swapLabel"
+      ],
+      "note": "exchanges a Bluetooth controller's A/B and X/Y, live"
+    },
+    {
+      "name": "both sticks drawn at rest",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "- (CGPoint)stickHome",
+        "- (CGPoint)rightStickHome",
+        "- (CGFloat)stickR",
+        "- (CGFloat)rightStickR"
+      ],
+      "note": "the player sees where the sticks are before touching them"
+    },
+    {
+      "name": "the right stick follows a swipe",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "- (BOOL)inRightArea:",
+        "K_RSWIPE"
+      ],
+      "note": "a touch in the right third holds the stick where it lands"
+    },
+    {
+      "name": "the pad's touch guards",
+      "kind": "source",
+      "file": "shim/touch_pad_botw.m",
+      "markers": [
+        "overPill",
+        "K_PILL_DX",
+        "K_PAD_TOGGLE_GAP",
+        "K_MOTION_GAP",
+        "K_SWAP_GAP"
+      ],
+      "note": "no control may steal another's touch"
+    },
+    {
+      "name": "the patch set",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "#2:",
+        "#3 and #6:",
+        "#4:",
+        "#7:",
+        "#8:",
+        "#9:",
+        "#10:",
+        "#11:",
+        "#12:",
+        "#13:",
+        "#14:",
+        "#15:"
+      ],
+      "note": "all twelve patches; the numbers are the feature list"
+    },
+    {
+      "name": "the GameData folder is made at launch",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "createDirectoryAtPath:gameData withIntermediateDirectories:YES"
+      ],
+      "note": "patch #15: the player does not create it by hand"
+    },
+    {
+      "name": "the split image is mapped part by part",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "image_mapped_read",
+        "image_maps[MAX_CHUNKS]"
+      ],
+      "note": "patch #4: the mmap fast path for the split image"
+    },
+    {
+      "name": "the motion source gate",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "source_allows",
+        "RUNTIME_MOTION_SOURCE_AUTO",
+        "runtime_motion_feed_phone"
+      ],
+      "note": "patch #9: only the source in force reaches the fusion"
+    },
+    {
+      "name": "the Bluetooth face-button swap",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "TOTK_FACE_SWAP"
+      ],
+      "note": "patch #10: the game reads A/B and X/Y the Nintendo way"
+    },
+    {
+      "name": "Home and Capture taken from the system",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "pad_keep_system_buttons",
+        "GCSystemGestureStateDisabled"
+      ],
+      "note": "patch #2: they would otherwise interrupt the game"
+    },
+    {
+      "name": "the shared fonts from the phone's GameData",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "TOTK_SHARED_FONTS",
+        "phoneHasFonts"
+      ],
+      "note": "patch #8: all six are checked, not one"
+    },
+    {
+      "name": "the MetalFX frame interpolation row",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "TOTK_MFX"
+      ],
+      "note": "patch #7: the runtime's own panel is Mac only"
+    },
+    {
+      "name": "the Metal performance HUD",
+      "kind": "source",
+      "file": "shim/apply_patches.py",
+      "markers": [
+        "TOTK_METAL_HUD",
+        "developerHUDProperties"
+      ],
+      "note": "patch #6"
+    },
+    {
+      "name": "the phone's thermal state and Low Power Mode",
+      "kind": "source",
+      "file": "shim/phone_extra.m",
+      "markers": [
+        "phone_thermal",
+        "phone_low_power",
+        "phone_frame_cap_set",
+        "phone_settings_start",
+        "TOTK_PHONE_FPS"
+      ],
+      "note": "patch #3: the heat decides the frame cap, the choice comes back after"
+    },
+    {
+      "name": "the memory readout",
+      "kind": "source",
+      "file": "shim/phone_extra.m",
+      "markers": [
+        "Memory",
+        "phone_settings_start"
+      ],
+      "note": "patch #6: what the OS would still give the app"
+    },
+    {
+      "name": "the Settings pane rows",
+      "kind": "source",
+      "file": "shim/settings_rows.py",
+      "markers": [
+        "TOTK_MFX",
+        "TOTK_METAL_HUD",
+        "TOTK_FACE_SWAP",
+        "TOTK_PHONE_FPS",
+        "TOTK_FPS_CAP"
+      ],
+      "note": "three rows added, two edited in place; the uncapped third value"
+    },
+    {
+      "name": "the app icon's identity guard",
+      "kind": "tool",
+      "file": "app_icon.py",
+      "markers": [
+        "GAME_ICONS",
+        "def check_icon",
+        "def selftest"
+      ],
+      "note": "the icon is checked by content hash, never by file name"
+    },
+    {
+      "name": "the icon comes from the game's own dump",
+      "kind": "tool",
+      "file": "extract_app_icon_ios.py",
+      "markers": [
+        "icon_",
+        "AppIcon60x60@3x.png"
+      ],
+      "note": "the control NCA's icon_<language>.dat; works on Linux and Windows"
+    },
+    {
+      "name": "the game resources live outside the app",
+      "kind": "tool",
+      "file": "game_resources.py",
+      "markers": [
+        "def split_image",
+        "def pack_seed",
+        "romfs.sha256",
+        "shader-seed.txt",
+        "TOTKPACK1"
+      ],
+      "note": "the image in 1 GiB parts, the shaders as one packed stream"
+    },
+    {
+      "name": "the executable is filled and re-signed",
+      "kind": "tool",
+      "file": "macho.py",
+      "markers": [
+        "def fill",
+        "__TOTK",
+        "CSMAGIC"
+      ],
+      "note": "the game's code into the shell's reserved sections"
+    },
+    {
+      "name": "the game's tables are read at launch",
+      "kind": "source",
+      "file": "shim/runtime_tables.h",
+      "markers": [
+        "game-data"
+      ],
+      "note": "the shell carries no game file"
+    },
+    {
+      "name": "the patch mirror",
+      "kind": "source",
+      "file": "shim/patch_check.py",
+      "markers": [
+        "#15:",
+        "createDirectoryAtPath:gameData"
+      ],
+      "note": "a patch that stops applying is caught"
+    },
+    {
+      "name": "the layout self-test",
+      "kind": "test",
+      "file": "pad_layout.py",
+      "note": "no control overlaps another, on seven screens"
+    },
+    {
+      "name": "the motion-source self-test",
+      "kind": "test",
+      "file": "motion_source_check.py",
+      "note": "the gate keeps the two sensors apart"
+    },
+    {
+      "name": "the face-swap self-test",
+      "kind": "test",
+      "file": "face_swap_check.py",
+      "note": "the face buttons can be swapped"
+    },
+    {
+      "name": "the export self-test",
+      "kind": "test",
+      "file": "check_export.py",
+      "note": "the Python patch set matches upstream's C, byte for byte"
+    },
+    {
+      "name": "the tables round-trip self-test",
+      "kind": "test",
+      "file": "late_roundtrip.py",
+      "note": "the game tables survive Python to C"
+    },
+    {
+      "name": "the Mach-O self-test",
+      "kind": "test",
+      "file": "macho_check.py",
+      "note": "the filled executable is still valid and signed"
+    },
+    {
+      "name": "the resources self-test",
+      "kind": "test",
+      "file": "resources_check.py",
+      "note": "the resources folder is complete"
+    },
+    {
+      "name": "the whole-IPA self-test",
+      "kind": "test",
+      "file": "assemble_check.py",
+      "note": "a whole IPA comes out of synthetic files"
+    },
+    {
+      "name": "the feature manifest self-test",
+      "kind": "test",
+      "file": "feature_manifest.py",
+      "note": "this list: every feature is present"
+    }
+  ],
+  "workflow_tests": [
+    "pad_layout.py",
+    "motion_source_check.py",
+    "face_swap_check.py",
+    "late_roundtrip.py",
+    "resources_check.py",
+    "assemble_check.py",
+    "feature_manifest.py",
+    "macho_check.py",
+    "check_export.py"
+  ]
+}
