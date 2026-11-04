@@ -27,9 +27,25 @@ how to keep the game resources out of the IPA, how to copy them to the phone, an
 | `kit/tools/` | The game-file scripts: `convert_game.py`, `scan_firmware.py`, `extract_shared_fonts.py`. |
 | `kit/selftest/` | The self-tests the workflow runs. |
 
-The on-screen pad draws both sticks at rest, lets the right stick follow a swipe, and has a ⊙ button at the top
-centre that shows and hides the overlay (handy with a Bluetooth controller). Physical controllers map by position, as
-on a Switch controller. See [BUILD_GUIDE.md](BUILD_GUIDE.md) §5a.
+## The on-screen controller and the top row
+
+The pad draws both sticks at rest, lets the right stick follow a swipe, and has four buttons along the top:
+
+| | |
+|---|---|
+| **⊙** | shows and hides the whole overlay (handy with a Bluetooth controller) |
+| **the number** | the frame rate: **30 → 60 → uncapped**, tapped to cycle |
+| **the motion button** | which sensor aims the game: the phone's own, a Bluetooth controller's, or automatic |
+| **the swap button** | exchanges a Bluetooth controller's **A/B and X/Y**, live during play |
+
+The stick clicks are on the pad too: **L3 to the left of ZL**, **R3 to the right of ZR**.
+
+Physical controllers map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A Nintendo
+controller (Switch Pro, Joy-Con) keeps its own labels and is never swapped.
+
+The app also makes the **GameData** folder for you at the first launch, so you do not have to create it by hand.
+
+See [BUILD_GUIDE.md](BUILD_GUIDE.md) §5a.
 
 
 ## Legal

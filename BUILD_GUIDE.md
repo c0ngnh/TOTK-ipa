@@ -151,9 +151,18 @@ shoulder buttons.
   With a Bluetooth controller connected the pad hides itself; press ⊙ to bring it back for that session,
   or press it once with no controller to keep the picture clear between launches (the choice is
   remembered).
+- **The motion button next to ⊙** picks which sensor aims the game: the phone's own, a Bluetooth
+  controller's, or automatic. Only the chosen sensor reaches the game.
+- **The swap button next to the motion button** exchanges a Bluetooth controller's A/B and X/Y, live
+  during play. A Nintendo controller is left alone.
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A,
   left = Y, top = X. A Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
-- The **frame-rate button** (the number at the top centre) switches between 60 and 30 as it is held.
+- **The stick clicks are on the pad**: **L3 to the left of ZL**, **R3 to the right of ZR**. They sit
+  outboard of the shoulder buttons and never overlap them on any screen size.
+- The **frame-rate button** (the number at the top centre) cycles **30 → 60 → uncapped** when tapped.
+  A hot phone still holds 30 until it cools; your choice comes back afterwards.
+- The app makes the **GameData** folder itself at the first launch, so you do not have to create it
+  by hand.
 
 ---
 

@@ -88,12 +88,20 @@ The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad
   controller's motion sensor, or automatic (the controller while it reports motion, the phone otherwise). Tap it to
   cycle through the three; the choice is remembered between launches. Only the chosen sensor's samples reach the
   game, so the two never mix.
+- **The swap button next to the motion button** exchanges a Bluetooth controller's A/B and X/Y, live during play.
+  It leaves a Nintendo controller alone.
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A
   Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
+- **The stick clicks are on the pad**: **L3 to the left of ZL**, **R3 to the right of ZR**. They are outboard of the
+  shoulder buttons, so a thumb on ZL does not cover them, and they never overlap on any screen size.
 - **Swap the controller's A, B and X, Y** (Settings › 手柄 · Controller) makes a Bluetooth controller that is not a
   Nintendo one read as a Nintendo one: its A drives the game's A, its B the game's B, and so on, so the game's prompts
   sit where a Nintendo controller's buttons are. A Nintendo controller is left alone: it is already right.
-- The **frame-rate button** (the number at the top centre) switches between 60 and 30 as it is held.
+  The **swap button next to the motion button** turns this on and off while the game runs, so you do not have to
+  leave the game to change it. It only ever affects a Bluetooth controller.
+- The **frame-rate button** (the number at the top centre) cycles **30 → 60 → uncapped** when tapped. A hot phone or
+  one in Low Power Mode still holds 30 until it cools; your choice comes back afterwards.
+- The app makes the **GameData** folder itself at the first launch, so you do not have to create it by hand.
 
 ## Keeping the game resources out of the IPA
 
@@ -154,7 +162,24 @@ The kit is built by the **Build TOTK-ipa kit** workflow (Actions → Run workflo
   - the motion source's gate keeps the phone's sensor and the controller's sensor apart: a source that is not in
     force never reaches the game;
   - the controller's face buttons can be swapped, and a Nintendo controller is left alone when they are;
+  - the resources folder is complete: the image's parts rejoin to the image, the shader pack unpacks, and the marker
+    names a pack that is there;
+  - **every feature of the kit is present** — the feature manifest lists what a port must have, and a kit that lost
+    one fails here;
   - on Windows, the environment, embedding and IPA writing work on synthetic files, and the builder window's pages and
     checks behave.
 
 It then publishes the installer and the two kits as a release.
+
+### The feature manifest
+
+`kit/selftest/features.json` lists every feature the kit has, and `kit/selftest/feature_manifest.py` checks the kit
+against it:
+
+```sh
+$ python3 kit/selftest/feature_manifest.py
+feature manifest: 36 features, all present
+```
+
+A missing feature is a failure, not a note. If you add a feature, add it to that list too — it is the requirement for
+every port made after this one.
