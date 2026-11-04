@@ -269,13 +269,16 @@ jobs:
           # from it collides with the last release the moment the kit changes — and `gh release create` fails on the
           # collision, which loses the whole run's release. The kit's commit is what actually differs between two kits.
           tag="kit-$(date -u +%Y%m%d)-${GITHUB_SHA_SHORT:0:7}"
+          # The kits are in the working directory: "tar -C kits -czf" writes them there, and the artifact is uploaded
+          # from them afterwards. The download step's art/ holds the *other* jobs' artifacts, not these.
+          kits=(totk-ipa-kit-*.tar.gz)
           # An existing release for this tag means the kit was rebuilt: replace its assets rather than fail.
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "The tag $tag already exists — replacing its assets."
-            gh release upload "$tag" art/windows-installer/TOTK-ipa-Setup.exe totk-ipa-kit-*.tar.gz --clobber
+            gh release upload "$tag" art/windows-installer/TOTK-ipa-Setup.exe "${kits[@]}" --clobber
             gh release edit "$tag" --notes "Windows: run TOTK-ipa-Setup.exe; the builder asks for your game files and makes the IPA. Linux / macOS: the kits, with totk_import.py. Built from MacNativeGames ${SHA}. Contains no game files."
           else
-            gh release create "$tag" art/windows-installer/TOTK-ipa-Setup.exe totk-ipa-kit-*.tar.gz --target "$GITHUB_SHA" \
+            gh release create "$tag" art/windows-installer/TOTK-ipa-Setup.exe "${kits[@]}" --target "$GITHUB_SHA" \
               --title "TOTK-ipa kit ($tag)" \
               --notes "Windows: run TOTK-ipa-Setup.exe; the builder asks for your game files and makes the IPA. Linux / macOS: the kits, with totk_import.py. Built from MacNativeGames ${SHA}. Contains no game files."
           fi
