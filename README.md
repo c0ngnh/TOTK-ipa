@@ -38,7 +38,7 @@ The pad draws both sticks at rest, lets the right stick follow a swipe, and has 
 | **the motion button** | which sensor aims the game: the phone's own, a Bluetooth controller's, or automatic |
 | **the swap button** | exchanges a Bluetooth controller's **A/B and X/Y**, live during play |
 
-The stick clicks are on the pad too: **L3 to the left of ZL**, **R3 to the right of ZR**.
+The stick clicks are on the pad too: **L3 to the right of ZL**, **R3 to the left of ZR**.
 
 Physical controllers map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A Nintendo
 controller (Switch Pro, Joy-Con) keeps its own labels and is never swapped.

@@ -92,8 +92,8 @@ The pad is drawn in *Breath of the Wild*'s style: the A/B/X/Y diamond, the D-pad
   It leaves a Nintendo controller alone.
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A, left = Y, top = X. A
   Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
-- **The stick clicks are on the pad**: **L3 to the left of ZL**, **R3 to the right of ZR**. They are outboard of the
-  shoulder buttons, so a thumb on ZL does not cover them, and they never overlap on any screen size.
+- **The stick clicks are on the pad**: **L3 to the right of ZL**, **R3 to the left of ZR**. They are inboard of the
+  shoulder buttons, the way a controller's are, and they never overlap on any screen size.
 - **Swap the controller's A, B and X, Y** (Settings › 手柄 · Controller) makes a Bluetooth controller that is not a
   Nintendo one read as a Nintendo one: its A drives the game's A, its B the game's B, and so on, so the game's prompts
   sit where a Nintendo controller's buttons are. A Nintendo controller is left alone: it is already right.

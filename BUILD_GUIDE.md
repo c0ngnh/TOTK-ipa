@@ -157,8 +157,8 @@ shoulder buttons.
   during play. A Nintendo controller is left alone.
 - **Physical controllers** map by position, as on a Switch controller: bottom = B, right = A,
   left = Y, top = X. A Nintendo controller (Switch Pro, Joy-Con) keeps its own labels instead.
-- **The stick clicks are on the pad**: **L3 to the left of ZL**, **R3 to the right of ZR**. They sit
-  outboard of the shoulder buttons and never overlap them on any screen size.
+- **The stick clicks are on the pad**: **L3 to the right of ZL**, **R3 to the left of ZR**. They sit
+  inboard of the shoulder buttons and never overlap them on any screen size.
 - The **frame-rate button** (the number at the top centre) cycles **30 → 60 → uncapped** when tapped.
   A hot phone still holds 30 until it cools; your choice comes back afterwards.
 - The app makes the **GameData** folder itself at the first launch, so you do not have to create it

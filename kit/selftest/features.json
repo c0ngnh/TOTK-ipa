@@ -23,7 +23,7 @@
         "- (BOOL)overClick:",
         "- (CGPoint)clickCenter:"
       ],
-      "note": "the stick clicks, L3 left of ZL and R3 right of ZR"
+      "note": "the stick clicks, L3 right of ZL and R3 left of ZR"
     },
     {
       "name": "the pad's show/hide button",
