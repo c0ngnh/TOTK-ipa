@@ -92,7 +92,10 @@ def patch_scripts(work):
     They are checked edits (the text to find must be there exactly once), so a tree that already carries them is
     left alone."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location('totk_patch_scripts', KIT / 'shim/patch_scripts.py')
+    path = KIT / 'shim/patch_scripts.py'
+    if not path.is_file():
+        raise SystemExit(f'the kit is incomplete: {path} is missing. Re-download the kit and unpack it again.')
+    spec = importlib.util.spec_from_file_location('totk_patch_scripts', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module.main(work)

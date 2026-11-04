@@ -23,6 +23,7 @@ how to keep the game resources out of the IPA, how to copy them to the phone, an
 | | |
 |---|---|
 | `kit/totk_import.py` | The build: your dump in, an IPA and (with `--split-resources`) the game resources out. |
+| `kit/shim/patch_scripts.py` | The kit's own fix to the upstream build scripts (the ACID signature). The import tool reads it when the build starts. |
 | `kit/shim/touch_pad_botw.m` | The on-screen controller, in *Breath of the Wild*'s style. |
 | `kit/tools/` | The game-file scripts: `convert_game.py`, `scan_firmware.py`, `extract_shared_fonts.py`. |
 | `kit/selftest/` | The self-tests the workflow runs. |

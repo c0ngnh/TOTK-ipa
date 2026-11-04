@@ -299,6 +299,18 @@
       "note": "the ACID signature is not a data failure; every other check stays strict"
     },
     {
+      "name": "the kit layout check",
+      "kind": "test",
+      "file": "kit_layout_check.py",
+      "note": "the published kit holds everything the import tool loads; a missing piece fails here, not on the player's machine"
+    },
+    {
+      "name": "the kit's script fixes",
+      "kind": "test",
+      "file": "patch_scripts_check.py",
+      "note": "the kit's fix to the upstream build scripts"
+    },
+    {
       "name": "the game's tables are read at launch",
       "kind": "source",
       "file": "shim/runtime_tables.h",
@@ -380,6 +392,8 @@
     "resources_check.py",
     "assemble_check.py",
     "feature_manifest.py",
+    "kit_layout_check.py",
+    "patch_scripts_check.py",
     "macho_check.py",
     "check_export.py"
   ]

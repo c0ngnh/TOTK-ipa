@@ -225,6 +225,7 @@ the workflow into `kit/MacNativeGames/`; the import tool runs them from there.
 | `an NSP base game has no system fonts` | Pass `--firmware <dir>` or `--shared-fonts <dir>`. |
 | `the update is <version>: the iPhone/iPad build needs 1.4.3` | Only 1.4.3 is supported. |
 | `needs about 60 GB free` | The work folder needs room for the 17 GB image and its copies. |
+| `the kit is incomplete: ... shim/patch_scripts.py is missing` | The kit was unpacked incompletely, or it is a kit built before the fix that carries the shim. Download the kit again and unpack the whole archive. |
 | `BKTR verification failed` on the update merge | A dump tool rewrote the ACID block. `hactool` reports `Signature (FAIL)` for every retail dump because its struct has the fields in the wrong order — the merge itself is fine. |
 | The game starts but the screen is very dark | The shader translator is older than the `early_fragment_tests` fix. Rebuild it with `kit/build_tools.py` (the build refuses to finish without that flag) and regenerate the seed. |
 

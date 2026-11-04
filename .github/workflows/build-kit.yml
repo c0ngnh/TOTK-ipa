@@ -55,6 +55,8 @@ jobs:
         run: python3 kit/selftest/motion_source_check.py mng
       - name: The controller's face buttons can be swapped
         run: python3 kit/selftest/face_swap_check.py mng
+      - name: The kit's fix to the upstream build scripts (the ACID signature)
+        run: python3 kit/selftest/patch_scripts_check.py mng
       - name: The app icon is this game's own, not the other game's
         run: python3 kit/tools/app_icon.py --selftest
       - name: Every feature of the kit is present
@@ -204,10 +206,15 @@ jobs:
       - name: Installer
         run: |
           $dist = "dist"
-          New-Item -ItemType Directory -Force "$dist/kit/tools" | Out-Null
+          New-Item -ItemType Directory -Force "$dist/kit/tools", "$dist/kit/shim" | Out-Null
           Copy-Item kit/totk_import.py, kit/gui.py, kit/README.md, kit/windows/NOTICE.txt "$dist/kit/"
           Copy-Item kit/tools/*.py "$dist/kit/tools/"
+          # The kit's own fix to the upstream build scripts: the import tool reads kit/shim/patch_scripts.py when
+          # the build starts, so the installer must carry it.
+          Copy-Item kit/shim/patch_scripts.py "$dist/kit/shim/"
           foreach ($d in 'MacNativeGames', 'shell', 'bin', 'wheels') { Copy-Item -Recurse "kit/$d" "$dist/kit/$d" }
+          # The installer must hold everything the import tool loads; a missing piece fails the player's build.
+          python kit/selftest/kit_layout_check.py "$dist/kit"
           # a private copy of this Python 3.14 (python.org build, with tkinter, venv and ensurepip)
           $py = Split-Path (Get-Command python).Source
           Copy-Item -Recurse $py "$dist/python"
@@ -243,14 +250,19 @@ jobs:
           git init -q mng && git -C mng fetch -q --depth 1 "$MNG_URL" "$SHA" && git -C mng checkout -q FETCH_HEAD
           for plat in linux-x64 macos-arm64; do
             k="kits/totk-ipa-kit-$plat"
-            mkdir -p "$k/MacNativeGames/games" "$k/shell" "$k/bin" "$k/tools"
+            mkdir -p "$k/MacNativeGames/games" "$k/shell" "$k/bin" "$k/tools" "$k/shim"
             cp kit/totk_import.py kit/gui.py "$k/" && cp kit/tools/*.py "$k/tools/" && cp kit/README.md "$k/README.md"
+            # The kit's own fix to the upstream build scripts: the import tool reads kit/shim/patch_scripts.py when
+            # the build starts, so the kit must carry it.
+            cp kit/shim/patch_scripts.py "$k/shim/"
             cp mng/build_app.py mng/LICENSE mng/THIRD_PARTY_NOTICES.md "$k/MacNativeGames/"
             cp -R mng/games/totk mng/games/botw "$k/MacNativeGames/games/"
             rm -rf "$k/MacNativeGames/games/totk/prebuilt"
             echo "$SHA" > "$k/MacNativeGames/.kit-commit"
             tar -C "$k/shell" -xzf art/shell/shell.tar.gz
             tar -C "$k/bin" -xzf "art/tools-$plat/tools-$plat.tar.gz"
+            # The kit must hold everything the import tool loads; a missing piece fails the player's build.
+            python3 kit/selftest/kit_layout_check.py "$k"
             tar -C kits -czf "totk-ipa-kit-$plat.tar.gz" "totk-ipa-kit-$plat"
           done
           ls -lh totk-ipa-kit-*.tar.gz
