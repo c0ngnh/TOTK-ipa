@@ -21,6 +21,11 @@ IMPORT_TOOLS = ('totk_import.py', 'botw_import.py')
 # The import tool's tool_dir() resolves bin/<system>-<arch>/ and names these three.
 TOOL_BINARIES = ('hactool', 'spirv-cross', 'totk_xlate')
 
+# The shared library the shader translator loads by name (the service's DllImport("totk_spirv_cross")), and the
+# MinGW-w64 runtime DLLs it would want if it were not linked with the runtime inside it. The player's Windows has
+# no MinGW, so a library that wants them cannot load: the build dies with "libgcc_s_seh-1.dll was not found".
+WINDOWS_LIBRARIES = ('totk_spirv_cross.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')
+
 # The helper modules the import tool imports by name (kit/tools is on its path).
 TOOL_MODULES = ('export_v143', 'late_config', 'macho', 'game_resources', 'app_icon')
 
@@ -81,6 +86,13 @@ def check(kit):
                         for folder in folders)
             if not found:
                 problems.append(f'bin/ holds no {name} (the build needs it)')
+        # The Windows tools: the translator loads the shared library by name, so the library must be beside it,
+        # and the library must not want a MinGW runtime DLL the player's machine does not have.
+        windows = [folder for folder in folders if folder.name.startswith('windows-')]
+        if windows:
+            for name in WINDOWS_LIBRARIES:
+                if not any((folder / name).is_file() for folder in windows):
+                    problems.append(f'bin/ holds no {name} (the Windows translator loads it, or needs it)')
 
     return problems
 

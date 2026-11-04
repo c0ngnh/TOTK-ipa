@@ -57,9 +57,83 @@ static FILE *mng_open_base(const char *path) {
 '''
 
 
+# The MinGW-w64 runtime DLLs a dynamically linked tool may want: the unwinder, the C++ runtime and the threading
+# runtime. The player's Windows has no MinGW, so a tool that needs them cannot start. The tools are linked with the
+# runtime inside them, and these are shipped beside them as well, so the kit does not depend on the machine having
+# MinGW.
+MINGW_RUNTIME_DLLS = ('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')
+
+
+def mingw_roots():
+    """The folders the MinGW toolchain is in. The environment names them, but the names are not always set
+    (a CI step that sets PATH itself does not set them), so the compiler's own folder is used as well."""
+    roots = []
+    for name in ('MSYSTEM_PREFIX', 'MINGW_PREFIX'):
+        value = os.environ.get(name)
+        if value:
+            roots.append(Path(value))
+    # The compiler that is on the PATH lives in <prefix>/bin, so its folder names the prefix.
+    for compiler in ('g++', 'gcc'):
+        found = shutil.which(compiler)
+        if found:
+            roots.append(Path(found).resolve().parent.parent)
+    # The usual places, for the case where the compiler is not on the PATH either.
+    roots += [Path(p) for p in (r'C:\msys64\mingw64', r'C:\msys64\ucrt64', '/mingw64', '/usr') if Path(p).is_dir()]
+    unique = []
+    for root in roots:
+        if root not in unique:
+            unique.append(root)
+    return unique
+
+
+def find_mingw_runtime(name):
+    """The MinGW-w64 runtime DLL in the toolchain. None when it is not there."""
+    for root in mingw_roots():
+        for folder in (root / 'bin', root):
+            candidate = folder / name
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def sh(args, cwd=None, env=None):
     print('+', ' '.join(str(a) for a in args), flush=True)
     subprocess.run([str(a) for a in args], cwd=cwd, check=True, env=env)
+
+
+def runtime_imports(dll):
+    """The MinGW runtime DLLs the library wants: the ones the player's Windows does not have.
+
+    A MinGW library linked without the static runtime flags needs libgcc_s_seh-1.dll (the unwinder), libstdc++-6.dll
+    (the C++ runtime) and libwinpthread-1.dll (the threading runtime) beside it. The player's machine has no MinGW,
+    so the library cannot load and the translator dies with "<name> was not found" in the middle of the build.
+    The rest (the Windows API) is always there. An empty set means the library carries the runtime itself.
+    """
+    objdump = shutil.which('objdump') or find_mingw_tool('objdump')
+    if not objdump:
+        raise SystemExit('objdump was not found; the library\'s imports cannot be read (install binutils)')
+    result = subprocess.run([objdump, '-p', str(dll)], capture_output=True, text=True)
+    if result.returncode:
+        raise SystemExit(f'objdump could not read {dll.name}: {result.stderr.strip()}')
+    imported = set()
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line.startswith('DLL Name:'):
+            imported.add(line.split(':', 1)[1].strip())
+    return imported & set(MINGW_RUNTIME_DLLS)
+
+
+def find_mingw_tool(name):
+    """A tool from the MinGW toolchain. None when it is not there."""
+    for root in mingw_roots():
+        for folder in (root / 'bin', root / 'usr' / 'bin', root):
+            candidate = folder / (name + '.exe')
+            if candidate.is_file():
+                return candidate
+            candidate = folder / name
+            if candidate.is_file():
+                return candidate
+    return None
 
 
 def main():
@@ -142,10 +216,45 @@ def main():
                             'EXPORTS\n'
                             '    totk_spirv_cross_msl\n'
                             '    totk_spirv_cross_free\n')
-        sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
-            spvc / 'spirv_cross_inproc.o', '-o', str(out / 'totk_spirv_cross.dll'), str(def_file)])
+        # The runtime must be inside the library, not beside it: the player's Windows has no MinGW, so a library
+        # that wants libgcc_s_seh-1.dll (the unwinder), libstdc++-6.dll (the C++ runtime) or libwinpthread-1.dll
+        # (the threading runtime) cannot load at all. The other two tools are linked -static for the same reason;
+        # this one is a shared library, so the runtime goes in with the static flags.
+        #
+        # Which flags remove which DLL is the toolchain's business, not a rule to remember: every combination is
+        # tried and the import table of the result is read, and the first one that wants no MinGW runtime wins.
+        dll = out / 'totk_spirv_cross.dll'
+        objects = [spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES] + [spvc / 'spirv_cross_inproc.o']
+        candidates = (
+            ['-static-libgcc', '-static-libstdc++', '-Wl,-Bstatic', '-lwinpthread', '-Wl,-Bdynamic'],
+            ['-static-libgcc', '-static-libstdc++', '-static'],
+            ['-static-libgcc', '-static-libstdc++'],
+            ['-static'],
+            [],
+        )
+        built = None
+        for extra in candidates:
+            sh([cxx, '-shared', '-fPIC', *extra, *objects, '-o', str(dll), str(def_file)])
+            wanted = runtime_imports(dll)
+            if not wanted:
+                built = extra
+                print(f'  the library needs no MinGW runtime DLL (linked with {" ".join(extra) or "no flags"})',
+                      flush=True)
+                break
+            print(f'  the library still needs {", ".join(sorted(wanted))}; trying harder', flush=True)
+        if built is None:
+            raise SystemExit(f'{dll.name} still needs {", ".join(sorted(runtime_imports(dll)))} and the player\'s '
+                             'Windows does not have them; link the MinGW runtime into it')
         # The import library is made from the .def file: dlltool's -d is the def file it reads, -l the library it writes.
         sh(['dlltool', '-d', str(def_file), '-l', str(out / 'totk_spirv_cross.lib')])
+        # Belt and braces: the runtime DLLs are shipped beside the library too, so the kit still works if a future
+        # toolchain leaves a dependency on them (the library is loaded by name, from the folder it sits in).
+        for name in MINGW_RUNTIME_DLLS:
+            src = shutil.which(name) or find_mingw_runtime(name)
+            if src:
+                shutil.copy2(src, out / name)
+            else:
+                print(f'  note: {name} was not found in the toolchain; the library must not need it', flush=True)
     else:
         sh([cxx, '-shared', '-fPIC', *[spvc / (n + '.o') for n in B.SPIRV_CROSS_SOURCES],
             spvc / 'spirv_cross_inproc.o', '-o', out / 'libtotk_spirv_cross.so'])

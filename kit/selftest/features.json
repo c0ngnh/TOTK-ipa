@@ -312,6 +312,12 @@
       "note": "the kit's fix to the upstream build scripts: the ACID signature, and the report's path keys (as_posix, the Windows spelling)"
     },
     {
+      "name": "the Windows tools carry the MinGW runtime",
+      "kind": "test",
+      "file": "mingw_runtime_check.py",
+      "note": "the player's Windows has no MinGW, so no tool may want libgcc_s_seh-1.dll, libstdc++-6.dll or libwinpthread-1.dll"
+    },
+    {
       "name": "the game's tables are read at launch",
       "kind": "source",
       "file": "shim/runtime_tables.h",
