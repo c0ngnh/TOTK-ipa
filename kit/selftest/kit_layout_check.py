@@ -26,8 +26,13 @@ TOOL_BINARIES = ('hactool', 'spirv-cross', 'totk_xlate')
 # no MinGW, so a library that wants them cannot load: the build dies with "libgcc_s_seh-1.dll was not found".
 WINDOWS_LIBRARIES = ('totk_spirv_cross.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')
 
-# The helper modules the import tool imports by name (kit/tools is on its path).
-TOOL_MODULES = ('export_v143', 'late_config', 'macho', 'game_resources', 'app_icon')
+# The helper modules the import tool imports by name (kit/tools is on its path), per kit. The two kits import
+# different ones: the TOTK import tool imports export_v143 (the 1.4.3 export) and late_config (the late config
+# table), the BOTW one imports export_botw190 (the 1.9.0 export) and game_data (the game-data tables).
+TOOL_MODULES = {
+    'totk_import.py': ('export_v143', 'late_config', 'macho', 'game_resources', 'app_icon'),
+    'botw_import.py': ('export_botw190', 'game_data', 'macho', 'game_resources', 'app_icon'),
+}
 
 # The upstream script the import tool runs to prepare the shader seed, per game.
 # The kit ships both games' trees; the import tool needs its own game's script.
@@ -48,7 +53,7 @@ def check(kit):
         problems.append(f'{kit} holds more than one import tool: {", ".join(tools)}')
 
     # The helper modules the import tool imports by name (kit/tools is on its path).
-    for name in TOOL_MODULES:
+    for name in TOOL_MODULES.get(tools[0] if tools else '', ()):
         if not (kit / 'tools' / f'{name}.py').is_file():
             problems.append(f'tools/{name}.py is missing (the import tool imports it)')
 
