@@ -235,9 +235,12 @@
         "TOTK_METAL_HUD",
         "TOTK_FACE_SWAP",
         "TOTK_PHONE_FPS",
-        "TOTK_FPS_CAP"
+        "TOTK_FPS_CAP",
+        "TOTK_FPS_OVERLAY",
+        "TOTK_TAA",
+        "TOTK_GYRO"
       ],
-      "note": "three rows added, two edited in place; the uncapped third value"
+      "note": "three rows added, two edited in place; the uncapped third value; the upstream rows it anchors to (TOTK_TAA, TOTK_FPS_OVERLAY, TOTK_GYRO)"
     },
     {
       "name": "the app icon's identity guard",
@@ -283,6 +286,17 @@
         "CSMAGIC"
       ],
       "note": "the game's code into the shell's reserved sections"
+    },
+    {
+      "name": "the kit's fix to the upstream build scripts",
+      "kind": "source",
+      "file": "shim/patch_scripts.py",
+      "markers": [
+        "ACID",
+        "signature",
+        "hactool"
+      ],
+      "note": "the ACID signature is not a data failure; every other check stays strict"
     },
     {
       "name": "the game's tables are read at launch",
