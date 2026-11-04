@@ -123,7 +123,7 @@
         "#14:",
         "#15:"
       ],
-      "note": "all twelve patches; the numbers are the feature list"
+      "note": "twelve patch sections, thirteen patch numbers (#3 and #6 share one); the numbers are the feature list"
     },
     {
       "name": "the GameData folder is made at launch",
