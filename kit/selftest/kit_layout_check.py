@@ -17,6 +17,20 @@ from pathlib import Path
 # The import tool of either kit: the folder holds one of them.
 IMPORT_TOOLS = ('totk_import.py', 'botw_import.py')
 
+# The built tools the import tool runs, and the names they are looked for by.
+# The import tool's tool_dir() resolves bin/<system>-<arch>/ and names these three.
+TOOL_BINARIES = ('hactool', 'spirv-cross', 'totk_xlate')
+
+# The helper modules the import tool imports by name (kit/tools is on its path).
+TOOL_MODULES = ('export_v143', 'late_config', 'macho', 'game_resources', 'app_icon')
+
+# The upstream script the import tool runs to prepare the shader seed, per game.
+# The kit ships both games' trees; the import tool needs its own game's script.
+UPSTREAM_SCRIPTS = {
+    'totk_import.py': ('totk/scripts/prepare_shader_seed.py',),
+    'botw_import.py': ('totk/scripts/prepare_shader_seed.py', 'botw/scripts/prepare_shader_seed.py'),
+}
+
 
 def check(kit):
     """The problems the kit folder has. An empty list means the kit can build."""
@@ -28,9 +42,10 @@ def check(kit):
     elif len(tools) > 1:
         problems.append(f'{kit} holds more than one import tool: {", ".join(tools)}')
 
-    # The helper modules the import tool imports (kit/tools is on its path).
-    if not list((kit / 'tools').glob('*.py')):
-        problems.append('tools/ is missing or empty (the import tool loads its helpers from there)')
+    # The helper modules the import tool imports by name (kit/tools is on its path).
+    for name in TOOL_MODULES:
+        if not (kit / 'tools' / f'{name}.py').is_file():
+            problems.append(f'tools/{name}.py is missing (the import tool imports it)')
 
     # The kit's own fix to the upstream build scripts: the import tool reads this when the build starts.
     if not (kit / 'shim/patch_scripts.py').is_file():
@@ -42,19 +57,30 @@ def check(kit):
         problems.append('MacNativeGames/build_app.py is missing')
     if not (mng / '.kit-commit').is_file():
         problems.append('MacNativeGames/.kit-commit is missing (the work folder is copied only once per upstream)')
-    scripts = list((mng / 'games').glob('*/scripts/*.py'))
-    if not scripts:
-        problems.append('MacNativeGames/games/*/scripts is missing or empty (the upstream build scripts)')
+    # The upstream script the import tool runs to prepare the shader seed.
+    for rel in UPSTREAM_SCRIPTS.get(tools[0] if tools else '', ()):
+        if not (mng / 'games' / rel).is_file():
+            problems.append(f'MacNativeGames/games/{rel} is missing (the shader seed is prepared by it)')
+    if not (mng / 'games/totk/requirements.txt').is_file():
+        problems.append('MacNativeGames/games/totk/requirements.txt is missing (the venv is built from it)')
 
     # The app shell: the game goes into its reserved sections.
     shells = list((kit / 'shell').glob('*/*.app/TOTK'))
     if not shells:
         problems.append('shell/*/*.app/TOTK is missing (the app shell the game goes into)')
 
-    # The built tools (hactool, SPIRV-Cross, the shader translator).
-    tools_dirs = [d for d in (kit / 'bin').iterdir() if d.is_dir()] if (kit / 'bin').is_dir() else []
-    if not tools_dirs:
+    # The built tools: hactool, SPIRV-Cross, the shader translator. The import tool's tool_dir()
+    # resolves bin/<system>-<arch>/ and names these three; a missing one stops the player's build.
+    bin_dir = kit / 'bin'
+    folders = [d for d in bin_dir.iterdir() if d.is_dir()] if bin_dir.is_dir() else []
+    if not folders:
         problems.append('bin/ holds no tool folder (hactool, SPIRV-Cross, the shader translator)')
+    else:
+        for name in TOOL_BINARIES:
+            found = any((folder / name).is_file() or (folder / f'{name}.exe').is_file()
+                        for folder in folders)
+            if not found:
+                problems.append(f'bin/ holds no {name} (the build needs it)')
 
     return problems
 

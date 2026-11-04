@@ -55,7 +55,7 @@ jobs:
         run: python3 kit/selftest/motion_source_check.py mng
       - name: The controller's face buttons can be swapped
         run: python3 kit/selftest/face_swap_check.py mng
-      - name: The kit's fix to the upstream build scripts (the ACID signature)
+      - name: The kit's fix to the upstream build scripts (the ACID signature, the report's path keys)
         run: python3 kit/selftest/patch_scripts_check.py mng
       - name: The app icon is this game's own, not the other game's
         run: python3 kit/tools/app_icon.py --selftest

@@ -294,9 +294,10 @@
       "markers": [
         "ACID",
         "signature",
-        "hactool"
+        "hactool",
+        "as_posix"
       ],
-      "note": "the ACID signature is not a data failure; every other check stays strict"
+      "note": "the ACID signature is not a data failure; every other check stays strict; the report's path keys are spelled the same on every platform"
     },
     {
       "name": "the kit layout check",
@@ -308,7 +309,7 @@
       "name": "the kit's script fixes",
       "kind": "test",
       "file": "patch_scripts_check.py",
-      "note": "the kit's fix to the upstream build scripts"
+      "note": "the kit's fix to the upstream build scripts: the ACID signature, and the report's path keys (as_posix, the Windows spelling)"
     },
     {
       "name": "the game's tables are read at launch",
