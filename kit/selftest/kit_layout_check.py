@@ -61,6 +61,10 @@ def check(kit):
     if not (kit / 'shim/patch_scripts.py').is_file():
         problems.append('shim/patch_scripts.py is missing (the import tool reads it when the build starts)')
 
+    # The app's icon: the import tool writes it into the app (kit/tools/app_icon.py), so the kit must carry it.
+    if not (kit / 'shim/AppIcon-1024.png').is_file():
+        problems.append('shim/AppIcon-1024.png is missing (the import tool writes the app icon from it)')
+
     # The upstream sources the kit copies into the work folder and patches.
     mng = kit / 'MacNativeGames'
     if not (mng / 'build_app.py').is_file():

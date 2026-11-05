@@ -1,138 +1,137 @@
 #!/usr/bin/env python3
-"""Check that the icon extractor runs in the build's venv, and not in the import tool's own Python.
+"""Check that the app's icon is the kit's own, and that it needs no image tool to install.
 
-The app's home screen icon comes from the player's own dump: the control NCA of the base game carries
-icon_<language>.dat, and kit/tools/extract_app_icon_ios.py turns it into the PNGs the Info.plist names.
-That extractor reads the card through MacNativeGames' own NSP reader (extract_exefs.py, extract_romfs.py,
-extract_shared_fonts.py), and those import the `cryptography` package to decrypt the NCA.
+The app's home screen icon is the game's own, and the kit carries it: kit/shim/AppIcon-1024.png is the icon from
+the game's base game's control NCA, and its sha256 is the one in kit/tools/app_icon.py's GAME_ICONS. The import
+tool writes it into the app (kit/tools/app_icon.py) and scales it to the sizes the Info.plist names, with
+kit/tools/png_image.py — the standard library only.
 
-The `cryptography` package is installed into the build's venv (work/venv, reached as tree/.venv), which is
-where every other upstream script runs. The import tool's own Python does not have it — and on Windows it
-cannot have it: the installer ships a private Python with its site-packages stripped, so `sys.executable`
-there has no third-party package at all. Running the extractor with sys.executable therefore dies with
+That is deliberate, and it replaces what used to be here. The icon used to be extracted from the player's own dump
+(the control NCA's icon_<language>.dat, a JPEG) and converted with an image tool, which needed ImageMagick or
+ffmpeg or Pillow. A clean Windows has none of them — and `convert` there is not ImageMagick but the system's own
+FAT-to-NTFS converter, which prints "Invalid Parameter - -resize" — so the build died at the last step with "no
+image tool for the icon: install ImageMagick or ffmpeg". **The 2026-11-05 failure.**
 
-    ModuleNotFoundError: No module named 'cryptography'
+The icon does not come from the dump, but the game's identity is still enforced: identify_game() refuses a dump of
+the other game before the build starts, and the sha256 guard refuses the other game's icon.
 
-and the build stops at the last step with "the app icon could not be made". The failure is invisible on
-Linux and Mac, where the player's Python may happen to have the package installed, so it reaches the
-player's Windows machine and nowhere else.
+This check proves what the player's build depends on:
 
-This check does two things:
+  1. The kit carries the icon, and it is this game's (checked by its sha256).
+  2. Installing it writes the PNGs the Info.plist names, at the right sizes.
+  3. The installed master is byte-identical to the kit's, so the guard the import tool runs passes on it.
+  4. Nothing in the icon path calls an image tool: no ImageMagick, no ffmpeg, no Pillow. The install must work on a
+     machine that has none of them, so the check runs the install with all three hidden from the search path.
 
-  1. It reads the import tool and asserts the extractor is started with the venv's Python.
-  2. It runs the extractor in a venv that has no `cryptography` and asserts it fails with that very
-     ModuleNotFoundError, and in a venv that has it and asserts it gets past the imports. That proves
-     the interpreter is what decides, so the check would catch a real regression rather than only the
-     shape of the source.
-
-    usage: icon_venv_check.py [MacNativeGames checkout]
+    usage: icon_venv_check.py
 """
-import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parents[1]
-IMPORT_TOOL = KIT / 'totk_import.py'
-EXTRACTOR = KIT / 'tools/extract_app_icon_ios.py'
+sys.path.insert(0, str(KIT / 'tools'))
+import app_icon
+import png_image
 
-# The upstream script the extractor reads the card through, and the package it needs.
-UPSTREAM_READER = 'extract_exefs.py'
-NEEDED_PACKAGE = 'cryptography'
+# The tools the icon path must not need. On a clean Windows none of them is installed, and `convert` is the system's
+# own FAT-to-NTFS converter rather than ImageMagick, so calling it is worse than calling nothing.
+IMAGE_TOOLS = ('magick', 'convert', 'ffmpeg')
 
-
-def check_source():
-    """The import tool must start the extractor with the venv's Python."""
-    text = IMPORT_TOOL.read_text(encoding='utf-8')
-    # The line the extractor is started on.
-    match = re.search(r'subprocess\.run\(\[([^\]]*extract_app_icon_ios\.py[^\]]*)\]', text, re.S)
-    if not match:
-        raise SystemExit(f'{IMPORT_TOOL.name} does not start the icon extractor at all')
-    command = match.group(1)
-    if 'sys.executable' in command:
-        raise SystemExit(
-            f'{IMPORT_TOOL.name} starts the icon extractor with sys.executable, which has no {NEEDED_PACKAGE} '
-            f'package: the build dies with "No module named \'{NEEDED_PACKAGE}\'". Use the venv\'s Python '
-            f'(tree/.venv/bin/python), which is where every other upstream script runs.')
-    if ".venv/bin/python" not in command:
-        raise SystemExit(
-            f'{IMPORT_TOOL.name} starts the icon extractor with something that is not the venv\'s Python: {command.strip()}')
+# The package the icon path must not need either: the venv does not have Pillow, and the installer's Python has its
+# site-packages stripped, so it could not have it.
+PACKAGES = ('PIL',)
 
 
-def upstream_reader(mng):
-    """The upstream NSP reader the extractor imports, and whether it needs the package."""
-    for base in (mng / 'games/totk/scripts', mng / 'MacNativeGames/games/totk/scripts', mng / 'scripts'):
-        reader = base / UPSTREAM_READER
-        if reader.is_file():
-            return reader
-    return None
+def check_no_image_tool():
+    """The install must work on a machine with no image tool at all.
 
-
-def run_extractor(python, tree):
-    """The extractor's own answer when it is started with this Python."""
+    The check runs the install in a subprocess whose PATH holds none of the tools and whose import path hides the
+    packages, so a fallback that reached for one of them would fail here rather than on the player's Windows.
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        proc = subprocess.run([str(python), str(EXTRACTOR), str(Path(tmp) / 'game.nsp'),
-                               '--keys', str(Path(tmp) / 'prod.keys'),
-                               '--output', str(Path(tmp) / 'out'),
-                               '--tree', str(tree)],
-                              capture_output=True, text=True)
-    return proc.stdout + proc.stderr
+        probe = Path(tmp) / 'probe.py'
+        probe.write_text(
+            'import sys\n'
+            # Only the kit\'s own tools: no Pillow from anywhere.
+            f'sys.path.insert(0, {str(KIT / "tools")!r})\n'
+            # Hide any package that happens to be installed.
+            'sys.modules["PIL"] = None\n'
+            'sys.modules["PIL.Image"] = None\n'
+            'import app_icon\n'
+            f'folder = app_icon.install({str(Path(tmp) / "Icons")!r}, {app_icon.THIS_GAME!r})\n'
+            'print("installed", folder)\n', encoding='utf-8')
+        # A PATH with nothing on it: no ImageMagick, no ffmpeg, and no `convert` either.
+        env = {'PATH': '', 'SYSTEMROOT': '', 'PYTHONPATH': ''}
+        proc = subprocess.run([sys.executable, str(probe)], capture_output=True, text=True, env=env)
+    out = proc.stdout + proc.stderr
+    if proc.returncode:
+        raise SystemExit(f'the icon install needs an image tool, so it fails on a clean Windows:\n{out}')
+    if 'installed' not in out:
+        raise SystemExit(f'the icon install did not finish:\n{out}')
+    for tool in IMAGE_TOOLS:
+        if tool in out:
+            raise SystemExit(f'the icon install called {tool}, which a clean Windows does not have:\n{out}')
+    return True
 
 
-def scripts_tree(mng, tmp):
-    """A work tree holding the upstream scripts, the way the build copies them."""
-    tree = Path(tmp) / 'tree'
-    src = mng / 'games/totk/scripts'
-    if not src.is_dir():
-        src = mng / 'MacNativeGames/games/totk/scripts'
-    (tree / 'scripts').mkdir(parents=True, exist_ok=True)
-    for item in src.iterdir():
-        if item.is_file() and item.suffix == '.py':
-            (tree / 'scripts' / item.name).write_bytes(item.read_bytes())
-    return tree
-
-
-def check_behaviour(mng):
-    """The interpreter decides: without the package the extractor dies, with it the extractor gets on."""
-    reader = upstream_reader(mng)
-    if reader is None:
-        print(f'note: {UPSTREAM_READER} was not found under {mng}; the behaviour was not checked')
-        return
-    text = reader.read_text(encoding='utf-8')
-    if f'import {NEEDED_PACKAGE}' not in text and f'from {NEEDED_PACKAGE}' not in text:
-        raise SystemExit(f'{reader} does not need {NEEDED_PACKAGE}; the check no longer proves anything')
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tree = scripts_tree(mng, tmp)
-        # A venv without the package: the extractor must fail with that very ModuleNotFoundError.
-        bare = Path(tmp) / 'bare'
-        subprocess.run([sys.executable, '-m', 'venv', str(bare)], check=True, capture_output=True)
-        out = run_extractor(bare / 'bin/python', tree)
-        if f"No module named '{NEEDED_PACKAGE}'" not in out:
-            raise SystemExit(f'the extractor did not fail without {NEEDED_PACKAGE}, so the check proves nothing:\n{out}')
-
-        # A venv with the package: the extractor must get past the imports and reach the game files.
-        full = Path(tmp) / 'full'
-        subprocess.run([sys.executable, '-m', 'venv', str(full)], check=True, capture_output=True)
-        subprocess.run([str(full / 'bin/python'), '-m', 'pip', 'install', '-q', NEEDED_PACKAGE],
-                       check=True, capture_output=True)
-        out = run_extractor(full / 'bin/python', tree)
-        if f"No module named '{NEEDED_PACKAGE}'" in out:
-            raise SystemExit(f'the extractor still failed without {NEEDED_PACKAGE}, though it was installed:\n{out}')
-        if 'FileNotFoundError' not in out:
-            raise SystemExit(f'the extractor did not get as far as reading the game files:\n{out}')
+def check_sizes(folder):
+    """The installed PNGs: the right names, the right sizes, and this game's icon."""
+    problems = []
+    for name, size in app_icon.ICON_SIZES:
+        path = Path(folder) / name
+        if not path.is_file():
+            problems.append(f'{name} was not written')
+            continue
+        width, height, _rgb = png_image.read_png(path)
+        if (width, height) != (size, size):
+            problems.append(f'{name} is {width}x{height}, not {size}x{size}')
+    return problems
 
 
 def main():
-    check_source()
-    mng = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else KIT.parent / 'MacNativeGames'
-    if mng.is_dir():
-        check_behaviour(mng)
-    else:
-        print(f'note: {mng} is not here; the behaviour was not checked')
-    print(f'the icon extractor runs in the build\'s venv, so it has the {NEEDED_PACKAGE} package')
+    ok = True
+    master = app_icon.MASTER
+    if not master.is_file():
+        print(f'  [FAIL] the kit does not carry the icon: {master}')
+        return 1
+    try:
+        app_icon.check_icon(master, app_icon.THIS_GAME)
+        print(f'  [OK] {app_icon.THIS_GAME}: the kit\'s icon is this game\'s own')
+    except SystemExit as e:
+        print(f'  [FAIL] {app_icon.THIS_GAME}: {e}')
+        return 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp) / 'Icons'
+        app_icon.install(folder, app_icon.THIS_GAME)
+        problems = check_sizes(folder)
+        if problems:
+            ok = False
+            for problem in problems:
+                print(f'  [FAIL] {problem}')
+        else:
+            print(f'  [OK] the install wrote the {len(app_icon.ICON_SIZES)} PNGs the Info.plist names')
+        # The installed master must be byte-identical to the kit's: the import tool's guard checks it by sha256.
+        if (folder / 'Icon-1024.png').read_bytes() != master.read_bytes():
+            ok = False
+            print('  [FAIL] the installed Icon-1024.png is not the kit\'s own bytes')
+        else:
+            print('  [OK] the installed Icon-1024.png is the kit\'s own bytes, so the guard passes on it')
+
+    try:
+        check_no_image_tool()
+        print('  [OK] the install needs no image tool and no Pillow (it works on a clean Windows)')
+    except SystemExit as e:
+        ok = False
+        print(f'  [FAIL] {e}')
+
+    if not ok:
+        return 1
+    print(f'the app icon is the kit\'s own, and it installs without an image tool')
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

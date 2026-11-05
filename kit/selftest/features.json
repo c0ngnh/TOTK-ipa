@@ -249,19 +249,21 @@
       "markers": [
         "GAME_ICONS",
         "def check_icon",
-        "def selftest"
+        "def selftest",
+        "def install"
       ],
       "note": "the icon is checked by content hash, never by file name"
     },
     {
-      "name": "the icon comes from the game's own dump",
+      "name": "the icon comes with the kit",
       "kind": "tool",
-      "file": "extract_app_icon_ios.py",
+      "file": "app_icon.py",
       "markers": [
-        "icon_",
-        "AppIcon60x60@3x.png"
+        "MASTER",
+        "ICON_SIZES",
+        "def install"
       ],
-      "note": "the control NCA's icon_<language>.dat; works on Linux and Windows"
+      "note": "the kit carries the game's icon (kit/shim/AppIcon-1024.png) and writes it into the app; no image tool is needed on the player's machine"
     },
     {
       "name": "the game resources live outside the app",
@@ -391,10 +393,21 @@
       "note": "this list: every feature is present"
     },
     {
-      "name": "the icon extractor runs in the build's venv",
+      "name": "the icon installs without an image tool",
       "kind": "test",
       "file": "icon_venv_check.py",
-      "note": "the extractor reads the card through the upstream NSP reader, which needs the cryptography package; that package is in the build's venv, not in the Python the import tool runs in (the Windows installer ships a Python with its site-packages stripped), so the extractor must run in the venv too"
+      "note": "the icon is the kit's own, so the install needs no ImageMagick, no ffmpeg and no Pillow; a clean Windows has none of them, and `convert` there is the system's own FAT-to-NTFS converter, not ImageMagick"
+    },
+    {
+      "name": "the PNG scaler, with the standard library only",
+      "kind": "tool",
+      "file": "png_image.py",
+      "markers": [
+        "def read_png",
+        "def write_png",
+        "def resize"
+      ],
+      "note": "the icon's sizes are scaled from the kit's master with no image library, so the bytes are the same on every machine"
     }
   ],
   "workflow_tests": [

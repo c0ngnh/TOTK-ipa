@@ -213,25 +213,34 @@ def write_resources(tree, out, logs):
     return parts
 
 
-def install_icon(app, tree, game, keys, logs):
-    """The app's home screen icon: the game's own, from the control NCA of the base game.
+def install_icon(app, logs):
+    """The app's home screen icon: the game's own, written into the app.
 
-    The shell is built without any game file, so it has no icon; the icon is taken from the player's own dump here and
-    the Info.plist is given the keys that point at it (the older CFBundleIconFiles form, which every iOS reads)."""
+    The shell is built without any game file, so it has no loose icon; the kit carries the game's own icon
+    (kit/shim/AppIcon-1024.png) and it is written into the app here, with the Info.plist given the keys that point at
+    it (the older CFBundleIconFiles form, which every iOS reads).
+
+    The icon is the kit's, not the dump's, and that is deliberate. It used to be extracted from the player's base game
+    (the control NCA's icon_<language>.dat, a JPEG) and converted with an image tool, which needed three things the
+    player's Windows has none of: ImageMagick or ffmpeg, a Pillow in the venv, and the game's base game file. On
+    Windows there is no image tool at all - and `convert` is not ImageMagick there but the system's own FAT-to-NTFS
+    converter, which prints "Invalid Parameter - -resize" - so the build died at the last step with "no image tool for
+    the icon". The icon the home screen shows is the kit's own anyway: iOS reads the asset catalog, which the shell
+    already carries, and the catalog's copy is the one that wins.
+    """
     import plistlib
     import app_icon
     icons = app / 'Icons'
     with (logs / 'app-icon.log').open('w') as log:
-        # The extractor reads the game's control NCA through the upstream NSP reader, which needs the cryptography
-        # package. That package is in the build's venv, not in the Python the import tool itself runs in: on Windows
-        # the installer ships a Python with its site-packages stripped, so running this with sys.executable dies with
-        # "No module named 'cryptography'". Every other upstream script runs in the venv, and so does this one.
-        p = subprocess.run([tree / '.venv/bin/python', KIT / 'tools/extract_app_icon_ios.py', str(game),
-                            '--keys', str(keys), '--output', str(icons), '--tree', str(tree)],
-                           stdout=log, stderr=subprocess.STDOUT)
-    if p.returncode or not (icons / 'AppIcon60x60@3x.png').is_file():
+        try:
+            app_icon.install(icons, 'v143')
+        except SystemExit as e:
+            log.write(f'{e}\n')
+            raise SystemExit(f'the app icon could not be made; see {logs / "app-icon.log"}')
+    if not (icons / 'AppIcon60x60@3x.png').is_file():
         raise SystemExit(f'the app icon could not be made; see {logs / "app-icon.log"}')
-    # The icon must be this game's: the extractor reads the title ID, so a wrong one would give the other game's icon.
+    # The icon must be this game's: app_icon.install checks the master's sha256 before it copies it, so a kit
+    # carrying the other game's icon stops here instead of shipping it.
     app_icon.check_icon(icons / 'Icon-1024.png', 'v143')
     info = app / 'Info.plist'
     data = plistlib.loads(info.read_bytes())
@@ -243,7 +252,7 @@ def install_icon(app, tree, game, keys, logs):
     say(f'4/4 app: the game icon installed ({len(list(icons.glob("*.png")))} images)')
 
 
-def build_payload(tree, shell, payload, logs, game=None, keys=None, image_outside=False):
+def build_payload(tree, shell, payload, logs, image_outside=False):
     """The app in the payload folder.
 
     With image_outside the 17 GB RomFS image and the startup shaders stay out of the app: the app carries only the
@@ -286,8 +295,7 @@ def build_payload(tree, shell, payload, logs, game=None, keys=None, image_outsid
         seed_for_ios(tree, res / 'shader-seed', logs)
     size = late_config.write(res / 'game-data', layout, romfs, tree / 'extracted/firmware/shared-fonts', hashes, VERSION)
     say(f'4/4 app: game tables written ({size} bytes)')
-    if game and keys:
-        install_icon(app, tree, game, keys, logs)
+    install_icon(app, logs)
     return app
 
 
@@ -383,7 +391,7 @@ def main(argv):
                 raise SystemExit(f'{script} failed; see {logs / (script + ".log")}')
     prepare_seed(tree, bins, logs)   # reuses a seed already prepared from the same files and tools
     payload = work / 'ipa-payload'
-    build_payload(tree, shell, payload, logs, game, keys, image_outside=a.split_resources)
+    build_payload(tree, shell, payload, logs, image_outside=a.split_resources)
     write_ipa(payload, out, 'about 200 MB' if a.split_resources else 'about 18 GB')
     shutil.rmtree(payload)
     if a.split_resources:

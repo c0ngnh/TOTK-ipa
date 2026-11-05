@@ -59,8 +59,8 @@ jobs:
         run: python3 kit/selftest/patch_scripts_check.py mng
       - name: The Windows tools carry the MinGW runtime (the player has no MinGW)
         run: python3 kit/selftest/mingw_runtime_check.py
-      - name: The icon extractor runs in the build's venv (it needs the cryptography package)
-        run: python3 kit/selftest/icon_venv_check.py mng
+      - name: The icon installs without an image tool (a clean Windows has none)
+        run: python3 kit/selftest/icon_venv_check.py
       - name: The app icon is this game's own, not the other game's
         run: python3 kit/tools/app_icon.py --selftest
       - name: Every feature of the kit is present
@@ -250,6 +250,9 @@ jobs:
           # The kit's own fix to the upstream build scripts: the import tool reads kit/shim/patch_scripts.py when
           # the build starts, so the installer must carry it.
           Copy-Item kit/shim/patch_scripts.py "$dist/kit/shim/"
+          # The app's icon: the import tool writes it into the app (kit/tools/app_icon.py), so the installer must
+          # carry it. It is the game's own icon, the one from its base game's control NCA.
+          Copy-Item kit/shim/AppIcon-1024.png "$dist/kit/shim/"
           foreach ($d in 'MacNativeGames', 'shell', 'bin', 'wheels') { Copy-Item -Recurse "kit/$d" "$dist/kit/$d" }
           # The installer must hold everything the import tool loads; a missing piece fails the player's build.
           python kit/selftest/kit_layout_check.py "$dist/kit"
@@ -293,6 +296,8 @@ jobs:
             # The kit's own fix to the upstream build scripts: the import tool reads kit/shim/patch_scripts.py when
             # the build starts, so the kit must carry it.
             cp kit/shim/patch_scripts.py "$k/shim/"
+            # The app's icon: the import tool writes it into the app (kit/tools/app_icon.py), so the kit must carry it.
+            cp kit/shim/AppIcon-1024.png "$k/shim/"
             cp mng/build_app.py mng/LICENSE mng/THIRD_PARTY_NOTICES.md "$k/MacNativeGames/"
             cp -R mng/games/totk mng/games/botw "$k/MacNativeGames/games/"
             rm -rf "$k/MacNativeGames/games/totk/prebuilt"
