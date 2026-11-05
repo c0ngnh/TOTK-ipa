@@ -222,7 +222,11 @@ def install_icon(app, tree, game, keys, logs):
     import app_icon
     icons = app / 'Icons'
     with (logs / 'app-icon.log').open('w') as log:
-        p = subprocess.run([sys.executable, KIT / 'tools/extract_app_icon_ios.py', str(game),
+        # The extractor reads the game's control NCA through the upstream NSP reader, which needs the cryptography
+        # package. That package is in the build's venv, not in the Python the import tool itself runs in: on Windows
+        # the installer ships a Python with its site-packages stripped, so running this with sys.executable dies with
+        # "No module named 'cryptography'". Every other upstream script runs in the venv, and so does this one.
+        p = subprocess.run([tree / '.venv/bin/python', KIT / 'tools/extract_app_icon_ios.py', str(game),
                             '--keys', str(keys), '--output', str(icons), '--tree', str(tree)],
                            stdout=log, stderr=subprocess.STDOUT)
     if p.returncode or not (icons / 'AppIcon60x60@3x.png').is_file():
